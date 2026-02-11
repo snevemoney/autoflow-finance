@@ -1,42 +1,64 @@
 
 
-# Next Steps for Auto Finance Platform
+# Enhanced Deal Detail: Document Viewer, Income Calculation, Employer Verification, and Deal Summary
 
-## Current State
-The frontend MVP is complete with mock data: dashboard, pipeline board, department queues, deal details, settings, and reports. Everything runs on static mock data with no persistence or authentication.
+## What This Adds
 
-## Recommended Next Steps (in priority order)
+1. **Clickable Document Viewer** -- Clicking any uploaded document opens it in a preview dialog (PDF viewer for PDFs, image display for images, download link for other types). Documents are served from the private storage bucket.
 
-### 1. Connect a Backend (Lovable Cloud / Supabase)
-Set up a database to persist deals, documents, users, and dealers. This replaces all mock data with real CRUD operations.
+2. **Income Verification Panel** -- A new sidebar card showing:
+   - Calculated monthly income from all uploaded pay stubs / bank statements
+   - Employer name and job title from customer data
+   - Income history: when a new pay stub is uploaded, income is recalculated and the previous vs. updated figure is shown
+   - Income-to-payment ratio (monthly income vs. monthly payment)
 
-**Tables to create:**
-- `dealers` - dealer info and status
-- `customers` - customer contact and employment info
-- `vehicles` - vehicle details per deal
-- `deals` - core deal records linking customer, vehicle, dealer
-- `documents` - uploaded file metadata
-- `deal_notes` - internal comments on deals
-- `deal_timeline` - activity/event log
-- `notifications` - user notifications
+3. **Employer Verification Check** -- An employer verification card that uses AI (via Lovable AI / Gemini Flash) through a backend function to:
+   - Verify if the employer/business exists
+   - Show verification status (verified, unverified, flagged)
+   - Display brief business info summary
 
-### 2. Add Authentication & Role-Based Access
-Implement login/signup with role-based access control (dealer, credit analyst, income verifier, funding manager, admin). Each role sees only their relevant pages and actions.
-
-### 3. Dealer Submission Portal
-Build a dedicated deal submission form where dealers can:
-- Enter customer and vehicle information
-- Upload required documents
-- Track their submitted deals
-
-### 4. Make Pipeline Functional
-Wire up the drag-and-drop pipeline to actually update deal status in the database, trigger notifications, and route deals to the correct department queue.
-
-### 5. Email Notifications (via Edge Functions)
-Set up automated emails using Resend for deal status changes (submission confirmation, approval/decline notifications, document requests).
+4. **Deal Summary Card** -- A new "Quick Summary" card at the top of the sidebar providing an at-a-glance decision brief:
+   - Customer name, credit tier, score
+   - Loan amount, LTV, monthly payment vs. income ratio
+   - Key flags or concerns
+   - Recommendation signal (green/yellow/red) based on business rules
 
 ---
 
-## Suggested Approach
-Tackle these one at a time, starting with **Step 1 (backend setup)** since everything else depends on having real data persistence. Each step is a single prompt-sized task.
+## Technical Details
+
+### New Components
+- `src/components/deals/DocumentViewer.tsx` -- Dialog component that renders PDF (via iframe/embed) or images inline when a document is clicked
+- `src/components/deals/IncomeVerificationCard.tsx` -- Sidebar card calculating income from income-type documents, showing employer info, and recalculating when new docs are added
+- `src/components/deals/EmployerVerificationCard.tsx` -- Card that calls a backend function to verify employer existence
+- `src/components/deals/DealSummaryCard.tsx` -- Quick summary card with decision metrics and risk signal
+
+### Backend Function
+- `supabase/functions/verify-employer/index.ts` -- Edge function that uses Lovable AI (Gemini Flash) to verify if an employer/business is real. Takes employer name, city, state as input and returns verification result with confidence level and brief business summary.
+
+### Database Changes
+- Add `calculated_monthly_income` column to `deals` table to store the computed income
+- Add `employer_verified` (boolean) and `employer_verification_data` (jsonb) columns to `customers` table
+
+### Modified Files
+- `src/pages/DealDetail.tsx` -- Add the new sidebar cards (Deal Summary, Income Verification, Employer Verification) and make document rows clickable to open the DocumentViewer dialog
+- `src/components/deals/DocumentUpload.tsx` -- After successful upload, trigger income recalculation if the document type is pay_stub or bank_statement
+
+### Income Calculation Logic
+- Filter all deal documents of type `pay_stub` or `bank_statement`
+- For pay stubs: use the customer's stated monthly income as baseline, then adjust if multiple stubs show different amounts
+- When a new income document is uploaded, recalculate by averaging across all available pay stubs
+- Show "Last updated" timestamp and delta from previous calculation
+
+### Employer Verification Flow
+1. On deal detail load, check if `employer_verified` is already set on the customer
+2. If not, show a "Verify Employer" button
+3. On click, call the `verify-employer` edge function
+4. Display result: verified checkmark, business type, years in operation (from AI response)
+5. Cache the result in the customer record so it doesn't re-run
+
+### Deal Summary Logic
+- Compute a risk score based on: credit score, LTV ratio, income-to-payment ratio, number of flags, document completion percentage
+- Display as a color-coded summary (green = low risk, yellow = moderate, red = high risk)
+- Show key metrics in a compact layout for fast decision-making
 
