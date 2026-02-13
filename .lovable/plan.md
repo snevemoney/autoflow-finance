@@ -1,28 +1,30 @@
 
 
-# File Preview Before Upload
+# Fix Document Viewer + Add Upload File Previews
 
-## What Changes
-Enhance the DocumentUpload component so that files in the "ready to upload" staging area show a visible preview of their content -- not just a filename and icon.
+## Problem
+1. Clicking uploaded documents in the deal detail page opens the DocumentViewer, but the iframe shows a 404 because mock data uses non-existent file paths (e.g., `/documents/credit-app.pdf`)
+2. Files in the "ready to upload" staging area only show tiny icons -- no visible content preview
 
-- **Images (JPG, PNG):** Show a larger inline thumbnail preview of the image (currently only a tiny 10x10 icon)
-- **PDFs:** Show an embedded PDF preview using an iframe/embed element so pages are visible and scrollable before uploading
+## Changes
 
-## Technical Details
+### 1. Fix DocumentViewer for mock/missing documents
+**File:** `src/components/deals/DocumentViewer.tsx`
+- Add a fallback when the document URL is a relative path that won't resolve (mock data)
+- Show a styled placeholder with the document name, type icon, and a message like "Document preview unavailable -- file not yet stored in cloud storage"
+- Once real documents are uploaded to storage, the viewer will work with actual URLs automatically
 
-### Modified File
-- `src/components/deals/DocumentUpload.tsx`
+### 2. Add file previews in DocumentUpload staging area
+**File:** `src/components/deals/DocumentUpload.tsx`
+- Generate object URLs for PDFs on drop (alongside existing image preview logic)
+- Update the staged file card layout from a single compact row to a card with a preview area on top:
+  - **Images:** Show the blob URL in a larger preview container (~200px, object-contain)
+  - **PDFs:** Show an `<embed>` element (~200px tall) so pages are visible and scrollable
+  - **DOC/DOCX:** Show a larger file icon placeholder
+- Clean up object URLs on file removal to prevent memory leaks (revoke blob URLs in `removeFile`)
+- Update the `UploadedFile` interface to always store a `preview` URL (for both images and PDFs)
 
-### Changes
-1. **Expand the file card layout** from a single-row compact view to a card with a preview area above the filename/type selector row
-2. **For image files:** Render the existing `item.preview` blob URL in a larger preview container (e.g., max-height 200px, object-contain)
-3. **For PDF files:** Create an object URL via `URL.createObjectURL(item.file)` and render it in an `<embed>` or `<iframe>` element (approx 200-250px tall) so the user can see and scroll through pages
-4. **For other file types (DOC, DOCX):** Show a larger icon placeholder with the filename since browsers cannot natively render these
-5. **Update the `UploadedFile` interface** to also store a preview URL for PDFs (created on drop)
-6. **Clean up object URLs** on file removal to prevent memory leaks
-
-### Layout
-Each staged file card will look like:
+### Layout for each staged file card
 
 ```text
 +----------------------------------+
@@ -33,4 +35,10 @@ Each staged file card will look like:
 +----------------------------------+
 ```
 
-No database or backend changes needed -- this is purely a frontend UI enhancement.
+## Technical Details
+
+- `URL.createObjectURL(file)` creates a blob URL for PDFs that works in `<embed>` elements
+- `URL.revokeObjectURL()` called on removal to free memory
+- No database or backend changes needed -- purely frontend UI
+- Two files modified: `DocumentViewer.tsx` and `DocumentUpload.tsx`
+
