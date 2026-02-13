@@ -1,64 +1,36 @@
 
 
-# Enhanced Deal Detail: Document Viewer, Income Calculation, Employer Verification, and Deal Summary
+# File Preview Before Upload
 
-## What This Adds
+## What Changes
+Enhance the DocumentUpload component so that files in the "ready to upload" staging area show a visible preview of their content -- not just a filename and icon.
 
-1. **Clickable Document Viewer** -- Clicking any uploaded document opens it in a preview dialog (PDF viewer for PDFs, image display for images, download link for other types). Documents are served from the private storage bucket.
-
-2. **Income Verification Panel** -- A new sidebar card showing:
-   - Calculated monthly income from all uploaded pay stubs / bank statements
-   - Employer name and job title from customer data
-   - Income history: when a new pay stub is uploaded, income is recalculated and the previous vs. updated figure is shown
-   - Income-to-payment ratio (monthly income vs. monthly payment)
-
-3. **Employer Verification Check** -- An employer verification card that uses AI (via Lovable AI / Gemini Flash) through a backend function to:
-   - Verify if the employer/business exists
-   - Show verification status (verified, unverified, flagged)
-   - Display brief business info summary
-
-4. **Deal Summary Card** -- A new "Quick Summary" card at the top of the sidebar providing an at-a-glance decision brief:
-   - Customer name, credit tier, score
-   - Loan amount, LTV, monthly payment vs. income ratio
-   - Key flags or concerns
-   - Recommendation signal (green/yellow/red) based on business rules
-
----
+- **Images (JPG, PNG):** Show a larger inline thumbnail preview of the image (currently only a tiny 10x10 icon)
+- **PDFs:** Show an embedded PDF preview using an iframe/embed element so pages are visible and scrollable before uploading
 
 ## Technical Details
 
-### New Components
-- `src/components/deals/DocumentViewer.tsx` -- Dialog component that renders PDF (via iframe/embed) or images inline when a document is clicked
-- `src/components/deals/IncomeVerificationCard.tsx` -- Sidebar card calculating income from income-type documents, showing employer info, and recalculating when new docs are added
-- `src/components/deals/EmployerVerificationCard.tsx` -- Card that calls a backend function to verify employer existence
-- `src/components/deals/DealSummaryCard.tsx` -- Quick summary card with decision metrics and risk signal
+### Modified File
+- `src/components/deals/DocumentUpload.tsx`
 
-### Backend Function
-- `supabase/functions/verify-employer/index.ts` -- Edge function that uses Lovable AI (Gemini Flash) to verify if an employer/business is real. Takes employer name, city, state as input and returns verification result with confidence level and brief business summary.
+### Changes
+1. **Expand the file card layout** from a single-row compact view to a card with a preview area above the filename/type selector row
+2. **For image files:** Render the existing `item.preview` blob URL in a larger preview container (e.g., max-height 200px, object-contain)
+3. **For PDF files:** Create an object URL via `URL.createObjectURL(item.file)` and render it in an `<embed>` or `<iframe>` element (approx 200-250px tall) so the user can see and scroll through pages
+4. **For other file types (DOC, DOCX):** Show a larger icon placeholder with the filename since browsers cannot natively render these
+5. **Update the `UploadedFile` interface** to also store a preview URL for PDFs (created on drop)
+6. **Clean up object URLs** on file removal to prevent memory leaks
 
-### Database Changes
-- Add `calculated_monthly_income` column to `deals` table to store the computed income
-- Add `employer_verified` (boolean) and `employer_verification_data` (jsonb) columns to `customers` table
+### Layout
+Each staged file card will look like:
 
-### Modified Files
-- `src/pages/DealDetail.tsx` -- Add the new sidebar cards (Deal Summary, Income Verification, Employer Verification) and make document rows clickable to open the DocumentViewer dialog
-- `src/components/deals/DocumentUpload.tsx` -- After successful upload, trigger income recalculation if the document type is pay_stub or bank_statement
+```text
++----------------------------------+
+|  [Preview area: image or PDF]    |
+|  (200px tall, scrollable for PDF)|
++----------------------------------+
+|  icon | filename | type | remove |
++----------------------------------+
+```
 
-### Income Calculation Logic
-- Filter all deal documents of type `pay_stub` or `bank_statement`
-- For pay stubs: use the customer's stated monthly income as baseline, then adjust if multiple stubs show different amounts
-- When a new income document is uploaded, recalculate by averaging across all available pay stubs
-- Show "Last updated" timestamp and delta from previous calculation
-
-### Employer Verification Flow
-1. On deal detail load, check if `employer_verified` is already set on the customer
-2. If not, show a "Verify Employer" button
-3. On click, call the `verify-employer` edge function
-4. Display result: verified checkmark, business type, years in operation (from AI response)
-5. Cache the result in the customer record so it doesn't re-run
-
-### Deal Summary Logic
-- Compute a risk score based on: credit score, LTV ratio, income-to-payment ratio, number of flags, document completion percentage
-- Display as a color-coded summary (green = low risk, yellow = moderate, red = high risk)
-- Show key metrics in a compact layout for fast decision-making
-
+No database or backend changes needed -- this is purely a frontend UI enhancement.
