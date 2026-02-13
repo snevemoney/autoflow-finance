@@ -21,6 +21,8 @@ export type Database = {
           date_of_birth: string | null
           email: string
           employer: string | null
+          employer_verification_data: Json | null
+          employer_verified: boolean | null
           first_name: string
           id: string
           job_title: string | null
@@ -40,6 +42,8 @@ export type Database = {
           date_of_birth?: string | null
           email: string
           employer?: string | null
+          employer_verification_data?: Json | null
+          employer_verified?: boolean | null
           first_name: string
           id?: string
           job_title?: string | null
@@ -59,6 +63,8 @@ export type Database = {
           date_of_birth?: string | null
           email?: string
           employer?: string | null
+          employer_verification_data?: Json | null
+          employer_verified?: boolean | null
           first_name?: string
           id?: string
           job_title?: string | null
@@ -200,6 +206,7 @@ export type Database = {
           apr: number
           assigned_department: Database["public"]["Enums"]["department"] | null
           assigned_to: string | null
+          calculated_monthly_income: number | null
           created_at: string
           created_by: string | null
           credit_bureau: Database["public"]["Enums"]["credit_bureau"] | null
@@ -240,6 +247,7 @@ export type Database = {
           apr: number
           assigned_department?: Database["public"]["Enums"]["department"] | null
           assigned_to?: string | null
+          calculated_monthly_income?: number | null
           created_at?: string
           created_by?: string | null
           credit_bureau?: Database["public"]["Enums"]["credit_bureau"] | null
@@ -280,6 +288,7 @@ export type Database = {
           apr?: number
           assigned_department?: Database["public"]["Enums"]["department"] | null
           assigned_to?: string | null
+          calculated_monthly_income?: number | null
           created_at?: string
           created_by?: string | null
           credit_bureau?: Database["public"]["Enums"]["credit_bureau"] | null

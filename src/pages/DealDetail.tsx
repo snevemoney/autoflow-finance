@@ -3,6 +3,10 @@ import { AppHeader } from '@/components/layout/AppHeader';
 import { StatusBadge } from '@/components/deals/StatusBadge';
 import { DealTimeline } from '@/components/deals/DealTimeline';
 import { DocumentUpload } from '@/components/deals/DocumentUpload';
+import { DocumentViewer } from '@/components/deals/DocumentViewer';
+import { DealSummaryCard } from '@/components/deals/DealSummaryCard';
+import { IncomeVerificationCard } from '@/components/deals/IncomeVerificationCard';
+import { EmployerVerificationCard } from '@/components/deals/EmployerVerificationCard';
 import { getDealById } from '@/data/mockData';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -40,6 +44,7 @@ export default function DealDetail() {
   const navigate = useNavigate();
   const deal = getDealById(id!);
   const [note, setNote] = useState('');
+  const [viewerDoc, setViewerDoc] = useState<{ name: string; fileUrl: string; type: string } | null>(null);
 
   if (!deal) {
     return (
@@ -317,7 +322,11 @@ export default function DealDetail() {
                   <CardContent>
                     <div className="space-y-3">
                       {deal.documents.map((doc) => (
-                        <div key={doc.id} className="document-item">
+                        <div
+                          key={doc.id}
+                          className="document-item"
+                          onClick={() => setViewerDoc({ name: doc.name, fileUrl: doc.fileUrl, type: doc.type })}
+                        >
                           <div className="flex h-10 w-10 items-center justify-center rounded bg-muted">
                             <FileText className="h-5 w-5 text-muted-foreground" />
                           </div>
@@ -392,6 +401,22 @@ export default function DealDetail() {
 
           {/* Sidebar */}
           <div className="space-y-6">
+            {/* Deal Summary */}
+            <DealSummaryCard deal={deal} />
+
+            {/* Income Verification */}
+            <IncomeVerificationCard deal={deal} />
+
+            {/* Employer Verification */}
+            {deal.customer.employmentInfo && (
+              <EmployerVerificationCard
+                employer={deal.customer.employmentInfo.employer}
+                city={deal.customer.address.city}
+                state={deal.customer.address.state}
+                customerId={deal.customer.id}
+              />
+            )}
+
             {/* Credit Info */}
             {deal.creditInfo && (
               <Card>
@@ -478,6 +503,13 @@ export default function DealDetail() {
           </div>
         </div>
       </div>
+
+      {/* Document Viewer Dialog */}
+      <DocumentViewer
+        open={!!viewerDoc}
+        onOpenChange={(open) => !open && setViewerDoc(null)}
+        document={viewerDoc}
+      />
     </div>
   );
 }
