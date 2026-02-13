@@ -30,7 +30,9 @@ export function DocumentUpload({ onUpload }: DocumentUploadProps) {
     const newFiles: UploadedFile[] = acceptedFiles.map((file) => ({
       file,
       type: 'other' as DocumentType,
-      preview: file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined,
+      preview: file.type.startsWith('image/') || file.type === 'application/pdf'
+        ? URL.createObjectURL(file)
+        : undefined,
     }));
     setUploadedFiles((prev) => [...prev, ...newFiles]);
   }, []);
@@ -43,11 +45,15 @@ export function DocumentUpload({ onUpload }: DocumentUploadProps) {
       'application/msword': ['.doc'],
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
     },
-    maxSize: 10 * 1024 * 1024, // 10MB
+    maxSize: 10 * 1024 * 1024,
   });
 
   const removeFile = (index: number) => {
-    setUploadedFiles((prev) => prev.filter((_, i) => i !== index));
+    setUploadedFiles((prev) => {
+      const removed = prev[index];
+      if (removed?.preview) URL.revokeObjectURL(removed.preview);
+      return prev.filter((_, i) => i !== index);
+    });
   };
 
   const updateFileType = (index: number, type: DocumentType) => {
@@ -63,6 +69,8 @@ export function DocumentUpload({ onUpload }: DocumentUploadProps) {
       title: 'Documents Uploaded',
       description: `${uploadedFiles.length} document(s) uploaded successfully.`,
     });
+    // Clean up all previews
+    uploadedFiles.forEach((f) => { if (f.preview) URL.revokeObjectURL(f.preview); });
     setUploadedFiles([]);
   };
 
@@ -76,6 +84,33 @@ export function DocumentUpload({ onUpload }: DocumentUploadProps) {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  const renderPreview = (item: UploadedFile) => {
+    if (item.file.type.startsWith('image/') && item.preview) {
+      return (
+        <img
+          src={item.preview}
+          alt={item.file.name}
+          className="w-full h-[200px] object-contain rounded-t-lg bg-muted"
+        />
+      );
+    }
+    if (item.file.type === 'application/pdf' && item.preview) {
+      return (
+        <iframe
+          src={item.preview}
+          title={item.file.name}
+          className="w-full h-[200px] rounded-t-lg border-b"
+        />
+      );
+    }
+    return (
+      <div className="w-full h-[200px] flex flex-col items-center justify-center bg-muted rounded-t-lg">
+        <File className="h-12 w-12 text-muted-foreground" />
+        <p className="text-xs text-muted-foreground mt-2">No preview available</p>
+      </div>
+    );
   };
 
   return (
@@ -112,60 +147,48 @@ export function DocumentUpload({ onUpload }: DocumentUploadProps) {
           <p className="text-sm font-medium">
             {uploadedFiles.length} file(s) ready to upload
           </p>
-          {uploadedFiles.map((item, index) => (
-            <div
-              key={index}
-              className="flex items-center gap-3 p-3 rounded-lg border bg-card"
-            >
-              {/* Preview/Icon */}
-              <div className="flex h-10 w-10 items-center justify-center rounded bg-muted shrink-0">
-                {item.preview ? (
-                  <img
-                    src={item.preview}
-                    alt=""
-                    className="h-full w-full object-cover rounded"
-                  />
-                ) : (
-                  getFileIcon(item.file)
-                )}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {uploadedFiles.map((item, index) => (
+              <div key={index} className="rounded-lg border bg-card overflow-hidden">
+                {/* Preview Area */}
+                {renderPreview(item)}
+
+                {/* File Info Row */}
+                <div className="flex items-center gap-2 p-3">
+                  <div className="shrink-0">{getFileIcon(item.file)}</div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{item.file.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {formatFileSize(item.file.size)}
+                    </p>
+                  </div>
+                  <Select
+                    value={item.type}
+                    onValueChange={(value) => updateFileType(index, value as DocumentType)}
+                  >
+                    <SelectTrigger className="w-36 h-8 text-xs">
+                      <SelectValue placeholder="Select type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Object.entries(DOCUMENT_TYPE_CONFIG).map(([key, config]) => (
+                        <SelectItem key={key} value={key}>
+                          {config.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => removeFile(index)}
+                    className="shrink-0 h-8 w-8"
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
-
-              {/* File Info */}
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate">{item.file.name}</p>
-                <p className="text-xs text-muted-foreground">
-                  {formatFileSize(item.file.size)}
-                </p>
-              </div>
-
-              {/* Type Selector */}
-              <Select
-                value={item.type}
-                onValueChange={(value) => updateFileType(index, value as DocumentType)}
-              >
-                <SelectTrigger className="w-48">
-                  <SelectValue placeholder="Select type" />
-                </SelectTrigger>
-                <SelectContent>
-                  {Object.entries(DOCUMENT_TYPE_CONFIG).map(([key, config]) => (
-                    <SelectItem key={key} value={key}>
-                      {config.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-
-              {/* Remove Button */}
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => removeFile(index)}
-                className="shrink-0"
-              >
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
-          ))}
+            ))}
+          </div>
 
           <Button onClick={handleSubmit} className="w-full">
             <CheckCircle2 className="h-4 w-4 mr-2" />
