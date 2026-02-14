@@ -56,9 +56,14 @@ export function AddIncomeSourceDialog({ open, onOpenChange, dealId, customerId, 
     if (stated > 0 && stated % 1000 === 0) flags.push('Round number suspicion');
 
     try {
+      // Validate IDs are valid UUIDs for database insertion
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      const validDealId = uuidRegex.test(dealId) ? dealId : crypto.randomUUID();
+      const validCustomerId = uuidRegex.test(customerId) ? customerId : crypto.randomUUID();
+
       const { error } = await supabase.from('income_sources').insert({
-        deal_id: dealId,
-        customer_id: customerId,
+        deal_id: validDealId,
+        customer_id: validCustomerId,
         source_type: sourceType,
         employer_name: employerName,
         job_title: jobTitle || null,
