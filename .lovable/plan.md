@@ -1,55 +1,46 @@
 
 
-# Seed Test Data for Income Calculator Testing
+# Manual Linking of Unmatched OCR Extractions
 
-## Overview
+## Problem
 
-Insert a complete set of test records into the database so you can navigate to a deal and test the Income Calculator immediately without creating data through the UI.
+When the OCR system extracts income data from uploaded documents, it tries to auto-match to an income source by comparing employer names. If the names don't match (e.g., "ACME CORPORATION" on the pay stub vs. "Acme Corp" in the income source), the extraction remains unlinked and shows as an "unmatched" badge with no way for the analyst to fix it.
 
-## Data to Insert
+## Solution
 
-### 1. Dealer
-- **Name**: Metro Auto Group
-- **Code**: MAG-001
-- **Contact**: John Metro
-- **Status**: active
+Add an "Unmatched Extractions" section in the Income Verification Card that lists each unlinked extraction with a dropdown to manually assign it to an income source. On selection, the extraction is linked and the income source's calculated income and fraud flags are updated automatically (reusing the existing logic).
 
-### 2. Customer
-- **Name**: Jane Doe
-- **Email**: jane.doe@example.com
-- **Employer**: Acme Corp
-- **Monthly Income**: $5,500
+## What Gets Built
 
-### 3. Vehicle
-- **Year/Make/Model**: 2024 Toyota Camry SE
-- **VIN**: 1HGCG5655WA041389
-- **Condition**: used
-- **Invoice Price**: $28,500
+### 1. New Component: `UnmatchedExtractionRow`
 
-### 4. Deal
-- **Status**: income_verification (so it appears in the income queue)
-- **Loan Amount**: $25,000
-- **APR**: 6.9%
-- **Term**: 72 months
-- **Credit Score**: 680
+A row component showing:
+- Employer name from document, gross pay, frequency, confidence badge
+- A `Select` dropdown listing all income sources by employer name
+- A "Link" button that triggers the assignment
 
-### 5. Income Sources (3 sources to test all rules)
+When linked:
+- Updates `extracted_income_data.income_source_id` to the chosen source
+- Recalculates the income source's `calculated_monthly_income` using `calcMonthlyFromExtraction`
+- Runs the same fraud flag checks (variance > 15%, employer mismatch, document age > 60 days)
+- Refetches data so the UI updates
 
-| Source | Type | Employer | Stated Monthly | Purpose |
-|---|---|---|---|---|
-| Primary | salaried | Acme Corp | $5,500 | Normal income calc testing |
-| Secondary | government_assistance | SSI Benefits | $1,200 | Test analyst benefit percentage review |
-| Third | contractor | Uber | $2,000 | Test rideshare auto-detection and ineligibility flag |
+### 2. Modify: `IncomeVerificationCard.tsx`
+
+In the multi-source view, below the "X unmatched" badge area (~line 240-254), add a collapsible section that renders `UnmatchedExtractionRow` for each extraction where `income_source_id` is null and `gross_pay` is not null.
+
+## Files Summary
+
+| Action | File |
+|--------|------|
+| Create | `src/components/deals/UnmatchedExtractionRow.tsx` |
+| Modify | `src/components/deals/IncomeVerificationCard.tsx` -- add unmatched section with manual link UI |
 
 ## Technical Details
 
-- All records will be inserted using the data insert tool (not migrations, since this is data, not schema)
-- UUIDs will be generated and referenced across tables to maintain foreign key relationships
-- The deal will have `status = 'income_verification'` so it shows up in the Income Queue
-- The Uber income source will have `vehicle_for_work = true` and `verification_status = 'flagged'` to demonstrate the rideshare rule
-- The SSI source will have `verification_status = 'needs_review'` to demonstrate the benefits review flow
-
-## No File Changes
-
-This is purely database seeding -- no code modifications needed.
+- The `UnmatchedExtractionRow` component receives the extraction object and the list of income sources as props, plus `onLinked` callback
+- The linking logic mirrors lines 94-136 of `IncomeVerificationCard.tsx` (the existing auto-match effect) but is triggered on button click
+- After linking, the row disappears from the unmatched list because the extraction now has an `income_source_id`
+- The `refetchSources` call ensures the IncomeSourceCard updates its linked extractions display
+- No database schema changes needed -- `extracted_income_data.income_source_id` already exists as a nullable UUID column
 
