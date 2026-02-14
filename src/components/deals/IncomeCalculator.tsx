@@ -4,7 +4,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
-import { Calculator, AlertTriangle, FileText, Loader2 } from 'lucide-react';
+import { Calculator, AlertTriangle, FileText, Loader2, Ban, ShieldAlert } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
@@ -24,6 +24,7 @@ interface IncomeCalculatorProps {
   currentManualReason: string | null;
   missedDaysFlag: boolean;
   additionalDocsRequested: string[];
+  vehicleForWork: boolean;
   onUpdated: () => void;
 }
 
@@ -48,6 +49,7 @@ export function IncomeCalculator({
   currentManualReason,
   missedDaysFlag,
   additionalDocsRequested,
+  vehicleForWork,
   onUpdated,
 }: IncomeCalculatorProps) {
   const [method, setMethod] = useState<CalcMethod>(currentCalcMethod);
@@ -57,9 +59,26 @@ export function IncomeCalculator({
   const [manualReason, setManualReason] = useState(currentManualReason ?? '');
   const [saving, setSaving] = useState(false);
 
+  const isBenefitType = sourceType === 'government_assistance' || sourceType === 'unemployed';
   const baseMI = calculatedMonthlyIncome ?? statedMonthlyIncome;
 
+  // For benefit types, the available methods are limited
+  const availableMethods = isBenefitType
+    ? CALC_METHODS.filter(m => m.value === 'mi' || m.value === 'ytd' || m.value === 'manual')
+    : CALC_METHODS;
+
   const computedResult = useMemo(() => {
+    // For benefit types, always apply 50% cap (except manual override)
+    if (isBenefitType && method !== 'manual') {
+      if (method === 'ytd') {
+        const gross = parseFloat(ytdGross);
+        const months = parseInt(ytdMonths);
+        if (!gross || !months || months < 1) return null;
+        return Math.round((gross / months) * 0.5);
+      }
+      return Math.round(baseMI * 0.5);
+    }
+
     switch (method) {
       case 'mi':
         return baseMI;
@@ -80,13 +99,14 @@ export function IncomeCalculator({
       default:
         return baseMI;
     }
-  }, [method, baseMI, ytdGross, ytdMonths, manualAmount]);
+  }, [method, baseMI, ytdGross, ytdMonths, manualAmount, isBenefitType]);
 
   const tipAmount = useMemo(() => {
+    if (isBenefitType) return null;
     if (method === 'mi_plus_10') return Math.round(baseMI * 0.10);
     if (method === 'mi_plus_20') return Math.round(baseMI * 0.20);
     return null;
-  }, [method, baseMI]);
+  }, [method, baseMI, isBenefitType]);
 
   const isBusinessType = sourceType === 'self_employed' || sourceType === 'contractor';
 
@@ -108,6 +128,7 @@ export function IncomeCalculator({
         calc_method: method,
         tip_percentage: tipPct,
         calculated_monthly_income: computedResult,
+        benefit_cap_applied: isBenefitType && method !== 'manual',
         updated_at: new Date().toISOString(),
       };
 
@@ -166,17 +187,45 @@ export function IncomeCalculator({
       ? (parseFloat(ytdGross) > 0 && parseInt(ytdMonths) >= 1)
       : true;
 
+  // Vehicle for work — show ineligible banner instead of calculator
+  if (vehicleForWork) {
+    return (
+      <div className="space-y-3 p-3 rounded-lg border border-destructive bg-destructive/5">
+        <div className="flex items-center gap-2 text-sm font-medium text-destructive">
+          <Ban className="h-4 w-4" />
+          INELIGIBLE — Vehicle Used for Rideshare/Commercial Work
+        </div>
+        <p className="text-xs text-muted-foreground">
+          This income source has been flagged because the applicant uses the financed vehicle for rideshare or commercial work. This deal is not eligible per policy.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-3 p-3 rounded-lg border border-border bg-muted/30">
       {/* Header */}
       <div className="flex items-center gap-2 text-sm font-medium">
         <Calculator className="h-4 w-4 text-primary" />
         Income Calculator
+        {isBenefitType && (
+          <Badge variant="outline" className="text-xs text-warning border-warning/30 ml-auto">
+            <ShieldAlert className="h-3 w-3 mr-1" />
+            50% Benefit Cap
+          </Badge>
+        )}
       </div>
+
+      {/* Benefit cap info */}
+      {isBenefitType && (
+        <p className="text-xs text-warning bg-warning/10 rounded-md px-2 py-1.5 border border-warning/20">
+          Benefits income capped at 50% per policy. Use Manual Override for documented exceptions.
+        </p>
+      )}
 
       {/* Method selector */}
       <div className="flex flex-wrap gap-1.5">
-        {CALC_METHODS.map(m => (
+        {availableMethods.map(m => (
           <button
             key={m.value}
             onClick={() => setMethod(m.value)}

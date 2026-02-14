@@ -228,6 +228,7 @@ export type Database = {
           ltv: number | null
           monthly_payment: number
           priority: Database["public"]["Enums"]["deal_priority"]
+          residency_status: string | null
           status: Database["public"]["Enums"]["deal_status"]
           term_months: number
           total_cost: number
@@ -242,6 +243,7 @@ export type Database = {
           trade_in_year: number | null
           updated_at: string
           vehicle_id: string
+          work_authorization_expiry: string | null
         }
         Insert: {
           apr: number
@@ -269,6 +271,7 @@ export type Database = {
           ltv?: number | null
           monthly_payment: number
           priority?: Database["public"]["Enums"]["deal_priority"]
+          residency_status?: string | null
           status?: Database["public"]["Enums"]["deal_status"]
           term_months: number
           total_cost: number
@@ -283,6 +286,7 @@ export type Database = {
           trade_in_year?: number | null
           updated_at?: string
           vehicle_id: string
+          work_authorization_expiry?: string | null
         }
         Update: {
           apr?: number
@@ -310,6 +314,7 @@ export type Database = {
           ltv?: number | null
           monthly_payment?: number
           priority?: Database["public"]["Enums"]["deal_priority"]
+          residency_status?: string | null
           status?: Database["public"]["Enums"]["deal_status"]
           term_months?: number
           total_cost?: number
@@ -324,6 +329,7 @@ export type Database = {
           trade_in_year?: number | null
           updated_at?: string
           vehicle_id?: string
+          work_authorization_expiry?: string | null
         }
         Relationships: [
           {
@@ -472,6 +478,7 @@ export type Database = {
       income_sources: {
         Row: {
           additional_docs_requested: string[]
+          benefit_cap_applied: boolean
           calc_method: string
           calculated_monthly_income: number | null
           contract_months: number | null
@@ -493,6 +500,7 @@ export type Database = {
           stated_monthly_income: number
           tip_percentage: number | null
           updated_at: string
+          vehicle_for_work: boolean
           verification_status: Database["public"]["Enums"]["income_verification_status"]
           verified_at: string | null
           verified_by: string | null
@@ -501,6 +509,7 @@ export type Database = {
         }
         Insert: {
           additional_docs_requested?: string[]
+          benefit_cap_applied?: boolean
           calc_method?: string
           calculated_monthly_income?: number | null
           contract_months?: number | null
@@ -522,6 +531,7 @@ export type Database = {
           stated_monthly_income?: number
           tip_percentage?: number | null
           updated_at?: string
+          vehicle_for_work?: boolean
           verification_status?: Database["public"]["Enums"]["income_verification_status"]
           verified_at?: string | null
           verified_by?: string | null
@@ -530,6 +540,7 @@ export type Database = {
         }
         Update: {
           additional_docs_requested?: string[]
+          benefit_cap_applied?: boolean
           calc_method?: string
           calculated_monthly_income?: number | null
           contract_months?: number | null
@@ -551,6 +562,7 @@ export type Database = {
           stated_monthly_income?: number
           tip_percentage?: number | null
           updated_at?: string
+          vehicle_for_work?: boolean
           verification_status?: Database["public"]["Enums"]["income_verification_status"]
           verified_at?: string | null
           verified_by?: string | null

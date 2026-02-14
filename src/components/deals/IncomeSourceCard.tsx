@@ -112,6 +112,12 @@ export function IncomeSourceCard({ source, linkedExtractions, onUpdated }: Incom
             {source.is_primary && (
               <Badge variant="secondary" className="text-xs">Primary</Badge>
             )}
+            {(source as any).vehicle_for_work && (
+              <Badge variant="destructive" className="text-xs">Rideshare/Commercial</Badge>
+            )}
+            {(source.source_type === 'government_assistance' || source.source_type === 'unemployed') && (
+              <Badge variant="outline" className="text-xs text-warning border-warning/30">50% Cap</Badge>
+            )}
             {showCalcBadge && (
               <Badge variant="outline" className="text-xs bg-primary/10 text-primary border-primary/30">
                 {CALC_METHOD_LABELS[source.calc_method]}
@@ -214,6 +220,7 @@ export function IncomeSourceCard({ source, linkedExtractions, onUpdated }: Incom
                   currentManualReason={source.manual_override_reason}
                   missedDaysFlag={source.missed_days_flag ?? false}
                   additionalDocsRequested={source.additional_docs_requested ?? []}
+                  vehicleForWork={(source as any).vehicle_for_work ?? false}
                   onUpdated={onUpdated}
                 />
               </div>
