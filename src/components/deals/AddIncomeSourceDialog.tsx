@@ -1,12 +1,19 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Checkbox } from '@/components/ui/checkbox';
+import { AlertTriangle } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
 import type { IncomeSourceType } from './IncomeSourceCard';
+
+const RIDESHARE_EMPLOYERS = [
+  'uber', 'lyft', 'doordash', 'grubhub', 'instacart', 'amazon flex',
+  'postmates', 'spark driver', 'gopuff', 'shipt', 'roadie',
+];
 
 interface AddIncomeSourceDialogProps {
   open: boolean;
@@ -37,7 +44,18 @@ export function AddIncomeSourceDialog({ open, onOpenChange, dealId, customerId, 
   const [hoursPerWeek, setHoursPerWeek] = useState('');
   const [hourlyRate, setHourlyRate] = useState('');
   const [contractMonths, setContractMonths] = useState('10');
+  const [vehicleForWork, setVehicleForWork] = useState(false);
+  const [rideshareDetected, setRideshareDetected] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  const isBenefitType = sourceType === 'government_assistance' || sourceType === 'unemployed';
+
+  // Auto-detect rideshare employers
+  useEffect(() => {
+    const isRideshare = RIDESHARE_EMPLOYERS.some(r => employerName.toLowerCase().trim().includes(r));
+    setRideshareDetected(isRideshare);
+    if (isRideshare) setVehicleForWork(true);
+  }, [employerName]);
 
   const handleSave = async () => {
     if (!employerName || !statedIncome) return;
@@ -68,14 +86,17 @@ export function AddIncomeSourceDialog({ open, onOpenChange, dealId, customerId, 
         employer_name: employerName,
         job_title: jobTitle || null,
         stated_monthly_income: stated,
-        calculated_monthly_income: calculated,
+        calculated_monthly_income: isBenefitType ? Math.round(stated * 0.5) : calculated,
         pay_frequency: payFrequency,
         contract_months: sourceType === 'education' ? parseInt(contractMonths) || null : null,
         hours_per_week: sourceType === 'part_time' ? parseFloat(hoursPerWeek) || null : null,
         hourly_rate: sourceType === 'part_time' ? parseFloat(hourlyRate) || null : null,
         is_primary: false,
-        flag_reasons: flags,
-      });
+        flag_reasons: vehicleForWork ? [...flags, 'Vehicle used for commercial/rideshare work'] : flags,
+        vehicle_for_work: vehicleForWork,
+        benefit_cap_applied: isBenefitType,
+        verification_status: vehicleForWork ? 'flagged' : 'unverified',
+      } as any);
 
       if (error) throw error;
       toast({ title: 'Income source added' });
@@ -168,15 +189,40 @@ export function AddIncomeSourceDialog({ open, onOpenChange, dealId, customerId, 
 
           {(sourceType === 'pension' || sourceType === 'government_assistance') && (
             <p className="text-xs text-muted-foreground">
-              {sourceType === 'pension' ? 'Enter the monthly pension or retirement benefit amount as stated income.' : 'Enter the monthly government benefit amount (SSI, SSDI, SNAP, etc.) as stated income.'}
+              {sourceType === 'pension' ? 'Enter the monthly pension or retirement benefit amount as stated income.' : 'Enter the monthly government benefit amount (SSI, SSDI, SNAP, etc.) as stated income. Note: Only 50% of benefits will count toward qualifying income per policy.'}
             </p>
           )}
 
           {sourceType === 'unemployed' && (
             <p className="text-xs text-muted-foreground">
-              Enter any unemployment benefits received monthly. If none, enter 0.
+              Enter any unemployment benefits received monthly. If none, enter 0. Note: Only 50% of benefits will count toward qualifying income per policy.
             </p>
           )}
+
+          {/* Vehicle for work checkbox */}
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="vehicle-for-work"
+                checked={vehicleForWork}
+                onCheckedChange={(checked) => setVehicleForWork(checked === true)}
+              />
+              <Label htmlFor="vehicle-for-work" className="text-sm cursor-pointer">
+                Applicant uses vehicle for work (rideshare, delivery, etc.)
+              </Label>
+            </div>
+            {rideshareDetected && (
+              <div className="flex items-center gap-1.5 text-xs text-destructive bg-destructive/10 rounded-md px-2 py-1.5 border border-destructive/20">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                This employer is a known rideshare/delivery service. Vehicle-for-work deals are not eligible.
+              </div>
+            )}
+            {vehicleForWork && !rideshareDetected && (
+              <p className="text-xs text-warning">
+                ⚠️ This source will be flagged as ineligible due to commercial vehicle use.
+              </p>
+            )}
+          </div>
         </div>
 
         <DialogFooter>

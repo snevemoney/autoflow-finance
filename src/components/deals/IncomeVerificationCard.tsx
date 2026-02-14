@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { DollarSign, TrendingUp, TrendingDown, Briefcase, AlertTriangle, FileSearch, Plus, ClipboardCheck } from 'lucide-react';
+import { DollarSign, TrendingUp, TrendingDown, Briefcase, AlertTriangle, FileSearch, Plus, ClipboardCheck, Ban } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { Deal } from '@/types/deal';
 import { supabase } from '@/integrations/supabase/client';
@@ -152,9 +152,19 @@ export function IncomeVerificationCard({ deal }: IncomeVerificationCardProps) {
   // --- Multi-source view ---
   if (hasMultiSource) {
     const totalStated = incomeSources.reduce((s, src) => s + src.stated_monthly_income, 0);
-    const totalCalculated = incomeSources.reduce((s, src) => s + (src.calculated_monthly_income ?? src.stated_monthly_income), 0);
+    // Apply 50% cap for benefit types in total calculation
+    const totalCalculated = incomeSources.reduce((s, src) => {
+      const isBenefit = src.source_type === 'government_assistance' || src.source_type === 'unemployed';
+      const base = src.calculated_monthly_income ?? src.stated_monthly_income;
+      // If benefit type and no calculated income set yet, apply 50% cap
+      if (isBenefit && src.calculated_monthly_income == null) {
+        return s + Math.round(src.stated_monthly_income * 0.5);
+      }
+      return s + base;
+    }, 0);
     const hasMissedDays = incomeSources.some(s => s.missed_days_flag);
     const hasNeedsReview = incomeSources.some(s => s.verification_status === 'needs_review');
+    const hasVehicleForWork = incomeSources.some(s => (s as any).vehicle_for_work);
     const monthlyPayment = deal.financingTerms.monthlyPayment;
     const pti = totalCalculated > 0 ? ((monthlyPayment / totalCalculated) * 100).toFixed(1) : 'N/A';
     const ptiHealthy = typeof pti === 'string' ? false : parseFloat(pti) <= 20;
@@ -191,7 +201,15 @@ export function IncomeVerificationCard({ deal }: IncomeVerificationCardProps) {
             </div>
           )}
 
-          {/* Missed days summary */}
+          {/* Vehicle for work ineligible banner */}
+          {hasVehicleForWork && (
+            <div className="flex items-center gap-2 p-3 rounded-lg bg-destructive/10 border border-destructive/30 text-sm">
+              <Ban className="h-4 w-4 text-destructive shrink-0" />
+              <span className="text-destructive font-medium">INELIGIBLE — Vehicle cannot be used for rideshare/commercial work. Deal should be declined.</span>
+            </div>
+          )}
+
+
           {hasMissedDays && (
             <div className="flex items-center gap-2 text-xs">
               <Badge variant="outline" className="text-warning border-warning/30">
