@@ -231,6 +231,7 @@ export function IncomeVerificationCard({ deal }: IncomeVerificationCardProps) {
                 key={src.id}
                 source={src}
                 linkedExtractions={extractionsBySource[src.id]}
+                onUpdated={refetchSources}
               />
             ))}
           </div>
