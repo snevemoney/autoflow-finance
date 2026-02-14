@@ -116,7 +116,7 @@ export function IncomeSourceCard({ source, linkedExtractions, onUpdated }: Incom
               <Badge variant="destructive" className="text-xs">Rideshare/Commercial</Badge>
             )}
             {(source.source_type === 'government_assistance' || source.source_type === 'unemployed') && (
-              <Badge variant="outline" className="text-xs text-warning border-warning/30">50% Cap</Badge>
+              <Badge variant="outline" className="text-xs text-info border-info/30">Benefits Review</Badge>
             )}
             {showCalcBadge && (
               <Badge variant="outline" className="text-xs bg-primary/10 text-primary border-primary/30">

@@ -152,16 +152,8 @@ export function IncomeVerificationCard({ deal }: IncomeVerificationCardProps) {
   // --- Multi-source view ---
   if (hasMultiSource) {
     const totalStated = incomeSources.reduce((s, src) => s + src.stated_monthly_income, 0);
-    // Apply 50% cap for benefit types in total calculation
-    const totalCalculated = incomeSources.reduce((s, src) => {
-      const isBenefit = src.source_type === 'government_assistance' || src.source_type === 'unemployed';
-      const base = src.calculated_monthly_income ?? src.stated_monthly_income;
-      // If benefit type and no calculated income set yet, apply 50% cap
-      if (isBenefit && src.calculated_monthly_income == null) {
-        return s + Math.round(src.stated_monthly_income * 0.5);
-      }
-      return s + base;
-    }, 0);
+    // Use analyst-set calculated income; for benefit types pending review, show stated as pending
+    const totalCalculated = incomeSources.reduce((s, src) => s + (src.calculated_monthly_income ?? src.stated_monthly_income), 0);
     const hasMissedDays = incomeSources.some(s => s.missed_days_flag);
     const hasNeedsReview = incomeSources.some(s => s.verification_status === 'needs_review');
     const hasVehicleForWork = incomeSources.some(s => (s as any).vehicle_for_work);
