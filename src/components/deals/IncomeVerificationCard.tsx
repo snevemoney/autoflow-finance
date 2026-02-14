@@ -1,10 +1,36 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { DollarSign, TrendingUp, TrendingDown, Briefcase } from 'lucide-react';
+import { DollarSign, TrendingUp, TrendingDown, Briefcase, AlertTriangle, FileSearch } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { Deal } from '@/types/deal';
+import { supabase } from '@/integrations/supabase/client';
+import { useQuery } from '@tanstack/react-query';
+import { Badge } from '@/components/ui/badge';
 
 interface IncomeVerificationCardProps {
   deal: Deal;
+}
+
+interface ExtractedIncome {
+  id: string;
+  document_id: string;
+  gross_pay: number | null;
+  net_pay: number | null;
+  pay_frequency: string | null;
+  pay_date: string | null;
+  employer_name_on_doc: string | null;
+  ytd_gross: number | null;
+  confidence: string;
+  extracted_at: string;
+}
+
+function calcMonthlyFromExtraction(grossPay: number, frequency: string): number {
+  switch (frequency) {
+    case 'weekly': return Math.round(grossPay * 4.33);
+    case 'biweekly': return Math.round(grossPay * 2.17);
+    case 'semimonthly': return Math.round(grossPay * 2);
+    case 'monthly': return grossPay;
+    default: return grossPay;
+  }
 }
 
 export function IncomeVerificationCard({ deal }: IncomeVerificationCardProps) {
@@ -13,17 +39,49 @@ export function IncomeVerificationCard({ deal }: IncomeVerificationCardProps) {
   const jobTitle = deal.customer.employmentInfo?.jobTitle ?? 'Unknown';
   const yearsEmployed = deal.customer.employmentInfo?.yearsEmployed ?? 0;
 
-  // Count income-related docs
-  const incomeDocs = deal.documents.filter(
-    d => d.type === 'pay_stub' || d.type === 'bank_statement' || d.type === 'income_verification'
-  );
-  const verifiedDocs = incomeDocs.filter(d => d.status === 'verified');
+  // Query extracted income data for this deal's documents
+  const docIds = deal.documents.map(d => d.id);
+  const { data: extractions } = useQuery({
+    queryKey: ['extracted-income', deal.id],
+    queryFn: async () => {
+      if (docIds.length === 0) return [];
+      const { data, error } = await supabase
+        .from('extracted_income_data')
+        .select('*')
+        .eq('deal_id', deal.id);
+      if (error) throw error;
+      return (data ?? []) as ExtractedIncome[];
+    },
+  });
 
-  // Simulated calculated income (in production this would come from document parsing)
-  // Slight variance to show recalculation effect
-  const calculatedIncome = incomeDocs.length > 1
-    ? Math.round(statedIncome * (0.95 + Math.random() * 0.1))
-    : statedIncome;
+  // Calculate income from extracted data if available
+  const hasExtractions = extractions && extractions.length > 0;
+  const validExtractions = extractions?.filter(e => e.gross_pay != null && e.pay_frequency) ?? [];
+
+  let calculatedIncome: number;
+  let incomeSource: string;
+
+  if (validExtractions.length > 0) {
+    // Use the most recent extraction with highest confidence
+    const sorted = [...validExtractions].sort((a, b) => {
+      const confOrder = { high: 3, medium: 2, low: 1 };
+      const aDiff = confOrder[a.confidence as keyof typeof confOrder] ?? 0;
+      const bDiff = confOrder[b.confidence as keyof typeof confOrder] ?? 0;
+      return bDiff - aDiff;
+    });
+    const best = sorted[0];
+    calculatedIncome = calcMonthlyFromExtraction(best.gross_pay!, best.pay_frequency!);
+    incomeSource = `Extracted from document (${best.confidence} confidence)`;
+  } else {
+    // Fallback: simulated from doc count (existing behavior)
+    const incomeDocs = deal.documents.filter(
+      d => d.type === 'pay_stub' || d.type === 'bank_statement' || d.type === 'income_verification'
+    );
+    calculatedIncome = incomeDocs.length > 1
+      ? Math.round(statedIncome * (0.95 + Math.random() * 0.1))
+      : statedIncome;
+    incomeSource = 'Estimated from application';
+  }
 
   const incomeDelta = calculatedIncome - statedIncome;
   const deltaPercent = statedIncome > 0 ? ((incomeDelta / statedIncome) * 100).toFixed(1) : '0';
@@ -34,6 +92,36 @@ export function IncomeVerificationCard({ deal }: IncomeVerificationCardProps) {
     : 'N/A';
 
   const ratioHealthy = typeof paymentToIncome === 'string' ? false : parseFloat(paymentToIncome) <= 20;
+
+  // Fraud flags
+  const flags: string[] = [];
+  if (validExtractions.length > 0) {
+    const absPercent = Math.abs(parseFloat(deltaPercent));
+    if (absPercent > 15) flags.push('Income variance > 15%');
+
+    const best = validExtractions[0];
+    if (best.employer_name_on_doc && employer !== 'Unknown') {
+      const docEmployer = best.employer_name_on_doc.toLowerCase().trim();
+      const statedEmployer = employer.toLowerCase().trim();
+      if (!docEmployer.includes(statedEmployer) && !statedEmployer.includes(docEmployer)) {
+        flags.push('Employer name mismatch');
+      }
+    }
+
+    if (best.pay_date) {
+      const payDate = new Date(best.pay_date);
+      const daysSince = (Date.now() - payDate.getTime()) / (1000 * 60 * 60 * 24);
+      if (daysSince > 60) flags.push('Document > 60 days old');
+    }
+
+    if (best.confidence === 'low') flags.push('Low confidence extraction');
+  }
+
+  // Count income-related docs
+  const incomeDocs = deal.documents.filter(
+    d => d.type === 'pay_stub' || d.type === 'bank_statement' || d.type === 'income_verification'
+  );
+  const verifiedDocs = incomeDocs.filter(d => d.status === 'verified');
 
   return (
     <Card>
@@ -63,6 +151,10 @@ export function IncomeVerificationCard({ deal }: IncomeVerificationCardProps) {
             <span className="text-muted-foreground">Calculated Income</span>
             <span className="font-medium">${calculatedIncome.toLocaleString()}/mo</span>
           </div>
+          <div className="flex items-center gap-1 text-xs text-muted-foreground">
+            <FileSearch className="h-3 w-3" />
+            {incomeSource}
+          </div>
           {incomeDelta !== 0 && (
             <div className={cn(
               'flex items-center gap-1 text-xs',
@@ -73,6 +165,18 @@ export function IncomeVerificationCard({ deal }: IncomeVerificationCardProps) {
             </div>
           )}
         </div>
+
+        {/* Fraud Flags */}
+        {flags.length > 0 && (
+          <div className="space-y-1.5">
+            {flags.map((flag, i) => (
+              <div key={i} className="flex items-center gap-1.5 text-xs text-warning">
+                <AlertTriangle className="h-3 w-3 shrink-0" />
+                {flag}
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Payment-to-Income Ratio */}
         <div className={cn(
@@ -91,8 +195,13 @@ export function IncomeVerificationCard({ deal }: IncomeVerificationCardProps) {
         </div>
 
         {/* Doc count */}
-        <div className="text-xs text-muted-foreground">
-          {verifiedDocs.length}/{incomeDocs.length} income documents verified
+        <div className="flex items-center justify-between text-xs text-muted-foreground">
+          <span>{verifiedDocs.length}/{incomeDocs.length} income documents verified</span>
+          {hasExtractions && (
+            <Badge variant="outline" className="text-xs text-success border-success/30">
+              {validExtractions.length} extracted
+            </Badge>
+          )}
         </div>
       </CardContent>
     </Card>

@@ -7,7 +7,10 @@ import { DocumentViewer } from '@/components/deals/DocumentViewer';
 import { DealSummaryCard } from '@/components/deals/DealSummaryCard';
 import { IncomeVerificationCard } from '@/components/deals/IncomeVerificationCard';
 import { EmployerVerificationCard } from '@/components/deals/EmployerVerificationCard';
+import { ExtractedDataBadge, type ExtractedData } from '@/components/deals/ExtractedDataBadge';
 import { getDealById } from '@/data/mockData';
+import { supabase } from '@/integrations/supabase/client';
+import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
@@ -45,6 +48,25 @@ export default function DealDetail() {
   const deal = getDealById(id!);
   const [note, setNote] = useState('');
   const [viewerDoc, setViewerDoc] = useState<{ name: string; fileUrl: string; type: string } | null>(null);
+
+  // Fetch extracted income data for this deal's documents
+  const { data: extractedDataMap } = useQuery({
+    queryKey: ['extracted-income-badges', deal?.id],
+    queryFn: async () => {
+      if (!deal) return {};
+      const { data, error } = await supabase
+        .from('extracted_income_data')
+        .select('*')
+        .eq('deal_id', deal.id);
+      if (error) throw error;
+      const map: Record<string, ExtractedData> = {};
+      (data ?? []).forEach((item: any) => { map[item.document_id] = item; });
+      return map;
+    },
+    enabled: !!deal,
+  });
+
+  const INCOME_DOC_TYPES = ['pay_stub', 'bank_statement', 'income_verification'];
 
   if (!deal) {
     return (
@@ -350,6 +372,10 @@ export default function DealDetail() {
                           >
                             {doc.status}
                           </span>
+                          <ExtractedDataBadge
+                            extraction={extractedDataMap?.[doc.id] ?? null}
+                            isIncomeDoc={INCOME_DOC_TYPES.includes(doc.type)}
+                          />
                         </div>
                       ))}
                     </div>
