@@ -57,26 +57,29 @@ export function IncomeCalculator({
   const [ytdMonths, setYtdMonths] = useState(currentYtdMonths?.toString() ?? '');
   const [manualAmount, setManualAmount] = useState(currentManualAmount?.toString() ?? '');
   const [manualReason, setManualReason] = useState(currentManualReason ?? '');
+  const [benefitPercent, setBenefitPercent] = useState(currentTipPercentage?.toString() ?? '50');
   const [saving, setSaving] = useState(false);
 
   const isBenefitType = sourceType === 'government_assistance' || sourceType === 'unemployed';
   const baseMI = calculatedMonthlyIncome ?? statedMonthlyIncome;
 
-  // For benefit types, the available methods are limited
+  // For benefit types, disable tip methods but allow analyst to set percentage
   const availableMethods = isBenefitType
     ? CALC_METHODS.filter(m => m.value === 'mi' || m.value === 'ytd' || m.value === 'manual')
     : CALC_METHODS;
 
   const computedResult = useMemo(() => {
-    // For benefit types, always apply 50% cap (except manual override)
+    // For benefit types, apply analyst-chosen percentage
     if (isBenefitType && method !== 'manual') {
+      const pct = parseInt(benefitPercent) || 50;
+      const clampedPct = Math.max(0, Math.min(100, pct));
       if (method === 'ytd') {
         const gross = parseFloat(ytdGross);
         const months = parseInt(ytdMonths);
         if (!gross || !months || months < 1) return null;
-        return Math.round((gross / months) * 0.5);
+        return Math.round((gross / months) * (clampedPct / 100));
       }
-      return Math.round(baseMI * 0.5);
+      return Math.round(baseMI * (clampedPct / 100));
     }
 
     switch (method) {
@@ -99,7 +102,7 @@ export function IncomeCalculator({
       default:
         return baseMI;
     }
-  }, [method, baseMI, ytdGross, ytdMonths, manualAmount, isBenefitType]);
+  }, [method, baseMI, ytdGross, ytdMonths, manualAmount, isBenefitType, benefitPercent]);
 
   const tipAmount = useMemo(() => {
     if (isBenefitType) return null;
@@ -122,11 +125,12 @@ export function IncomeCalculator({
 
     setSaving(true);
     try {
+      const benefitPct = isBenefitType && method !== 'manual' ? parseInt(benefitPercent) || 50 : null;
       const tipPct = method === 'mi_plus_10' ? 10 : method === 'mi_plus_20' ? 20 : null;
 
       const updates: Record<string, unknown> = {
         calc_method: method,
-        tip_percentage: tipPct,
+        tip_percentage: isBenefitType ? benefitPct : tipPct,
         calculated_monthly_income: computedResult,
         benefit_cap_applied: isBenefitType && method !== 'manual',
         updated_at: new Date().toISOString(),
@@ -211,16 +215,30 @@ export function IncomeCalculator({
         {isBenefitType && (
           <Badge variant="outline" className="text-xs text-warning border-warning/30 ml-auto">
             <ShieldAlert className="h-3 w-3 mr-1" />
-            50% Benefit Cap
+            Benefits Review
           </Badge>
         )}
       </div>
 
-      {/* Benefit cap info */}
-      {isBenefitType && (
-        <p className="text-xs text-warning bg-warning/10 rounded-md px-2 py-1.5 border border-warning/20">
-          Benefits income capped at 50% per policy. Use Manual Override for documented exceptions.
-        </p>
+      {/* Benefit percentage input — analyst decides */}
+      {isBenefitType && method !== 'manual' && (
+        <div className="space-y-1.5">
+          <p className="text-xs text-info bg-info/10 rounded-md px-2 py-1.5 border border-info/20">
+            Benefits income requires analyst review. Set the percentage of stated benefits to count toward qualifying income.
+          </p>
+          <div className="flex items-center gap-2">
+            <Label className="text-xs whitespace-nowrap">Count %</Label>
+            <Input
+              type="number"
+              value={benefitPercent}
+              onChange={e => setBenefitPercent(e.target.value)}
+              min="0"
+              max="100"
+              className="h-8 text-xs w-20"
+            />
+            <span className="text-xs text-muted-foreground">of ${baseMI.toLocaleString()}/mo</span>
+          </div>
+        </div>
       )}
 
       {/* Method selector */}

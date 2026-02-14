@@ -86,7 +86,7 @@ export function AddIncomeSourceDialog({ open, onOpenChange, dealId, customerId, 
         employer_name: employerName,
         job_title: jobTitle || null,
         stated_monthly_income: stated,
-        calculated_monthly_income: isBenefitType ? Math.round(stated * 0.5) : calculated,
+        calculated_monthly_income: calculated,
         pay_frequency: payFrequency,
         contract_months: sourceType === 'education' ? parseInt(contractMonths) || null : null,
         hours_per_week: sourceType === 'part_time' ? parseFloat(hoursPerWeek) || null : null,
@@ -94,8 +94,8 @@ export function AddIncomeSourceDialog({ open, onOpenChange, dealId, customerId, 
         is_primary: false,
         flag_reasons: vehicleForWork ? [...flags, 'Vehicle used for commercial/rideshare work'] : flags,
         vehicle_for_work: vehicleForWork,
-        benefit_cap_applied: isBenefitType,
-        verification_status: vehicleForWork ? 'flagged' : 'unverified',
+        benefit_cap_applied: false,
+        verification_status: vehicleForWork ? 'flagged' : (isBenefitType ? 'needs_review' : 'unverified'),
       } as any);
 
       if (error) throw error;
@@ -189,13 +189,13 @@ export function AddIncomeSourceDialog({ open, onOpenChange, dealId, customerId, 
 
           {(sourceType === 'pension' || sourceType === 'government_assistance') && (
             <p className="text-xs text-muted-foreground">
-              {sourceType === 'pension' ? 'Enter the monthly pension or retirement benefit amount as stated income.' : 'Enter the monthly government benefit amount (SSI, SSDI, SNAP, etc.) as stated income. Note: Only 50% of benefits will count toward qualifying income per policy.'}
+              {sourceType === 'pension' ? 'Enter the monthly pension or retirement benefit amount as stated income.' : 'Enter the monthly government benefit amount (SSI, SSDI, SNAP, etc.) as stated income. An analyst will review and set the qualifying percentage.'}
             </p>
           )}
 
           {sourceType === 'unemployed' && (
             <p className="text-xs text-muted-foreground">
-              Enter any unemployment benefits received monthly. If none, enter 0. Note: Only 50% of benefits will count toward qualifying income per policy.
+              Enter any unemployment benefits received monthly. If none, enter 0. An analyst will review and set the qualifying percentage.
             </p>
           )}
 
