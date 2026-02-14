@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { IncomeSourceCard, type IncomeSource } from './IncomeSourceCard';
 import { AddIncomeSourceDialog } from './AddIncomeSourceDialog';
+import { UnmatchedExtractionRow } from './UnmatchedExtractionRow';
 
 interface IncomeVerificationCardProps {
   deal: Deal;
@@ -252,6 +253,27 @@ export function IncomeVerificationCard({ deal }: IncomeVerificationCardProps) {
               )}
             </div>
           )}
+
+          {/* Unmatched extractions - manual linking */}
+          {(() => {
+            const unmatchedExtractions = extractions?.filter(
+              e => !e.income_source_id && e.gross_pay != null
+            ) ?? [];
+            if (unmatchedExtractions.length === 0) return null;
+            return (
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-muted-foreground">Unmatched Extractions — assign manually</p>
+                {unmatchedExtractions.map(ext => (
+                  <UnmatchedExtractionRow
+                    key={ext.id}
+                    extraction={ext}
+                    incomeSources={incomeSources}
+                    onLinked={() => { refetchSources(); }}
+                  />
+                ))}
+              </div>
+            );
+          })()}
 
           {/* Source cards */}
           <div className="space-y-3">
