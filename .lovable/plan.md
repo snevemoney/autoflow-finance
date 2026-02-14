@@ -1,52 +1,55 @@
 
 
-# Add Email/Password Authentication
+# Seed Test Data for Income Calculator Testing
 
 ## Overview
 
-Create a login/signup page so you can authenticate and test all the RLS-protected database features (Income Calculator, etc.). The existing `profiles` table and `user_roles` table with `has_role()` function are already in place, along with a trigger to auto-create profiles on signup.
+Insert a complete set of test records into the database so you can navigate to a deal and test the Income Calculator immediately without creating data through the UI.
 
-## What Gets Built
+## Data to Insert
 
-### 1. Auth Page (`src/pages/Auth.tsx`)
-- Single page with toggle between Login and Sign Up tabs
-- **Sign Up**: name, email, password fields. On submit calls `supabase.auth.signUp()` with `emailRedirectTo: window.location.origin`
-- **Login**: email, password fields. On submit calls `supabase.auth.signInWithPassword()`
-- Shows toast messages for errors and success (e.g., "Check your email to confirm")
-- Redirects to `/` (Dashboard) on successful login
+### 1. Dealer
+- **Name**: Metro Auto Group
+- **Code**: MAG-001
+- **Contact**: John Metro
+- **Status**: active
 
-### 2. Auth Context (`src/contexts/AuthContext.tsx`)
-- Provides `user`, `session`, `loading`, `signOut` via React context
-- Sets up `onAuthStateChange` listener before calling `getSession()` (per best practices)
-- Wraps the entire app in `App.tsx`
+### 2. Customer
+- **Name**: Jane Doe
+- **Email**: jane.doe@example.com
+- **Employer**: Acme Corp
+- **Monthly Income**: $5,500
 
-### 3. Protected Routes
-- Create a `ProtectedRoute` component that checks for active session
-- If no session, redirect to `/auth`
-- Wrap all existing routes inside `AppLayout` with this guard
+### 3. Vehicle
+- **Year/Make/Model**: 2024 Toyota Camry SE
+- **VIN**: 1HGCG5655WA041389
+- **Condition**: used
+- **Invoice Price**: $28,500
 
-### 4. Update `AppHeader.tsx`
-- Replace hardcoded "Alex Morgan" with the authenticated user's name from the profiles table
-- Wire up the "Log out" button to call `signOut()`
+### 4. Deal
+- **Status**: income_verification (so it appears in the income queue)
+- **Loan Amount**: $25,000
+- **APR**: 6.9%
+- **Term**: 72 months
+- **Credit Score**: 680
 
-### 5. Routing Changes (`App.tsx`)
-- Add `/auth` route (outside `AppLayout`, no sidebar)
-- Wrap `AppLayout` routes with `ProtectedRoute`
+### 5. Income Sources (3 sources to test all rules)
 
-## Files Summary
+| Source | Type | Employer | Stated Monthly | Purpose |
+|---|---|---|---|---|
+| Primary | salaried | Acme Corp | $5,500 | Normal income calc testing |
+| Secondary | government_assistance | SSI Benefits | $1,200 | Test analyst benefit percentage review |
+| Third | contractor | Uber | $2,000 | Test rideshare auto-detection and ineligibility flag |
 
-| Action | File |
-|---|---|
-| Create | `src/pages/Auth.tsx` |
-| Create | `src/contexts/AuthContext.tsx` |
-| Create | `src/components/ProtectedRoute.tsx` |
-| Modify | `src/App.tsx` -- add auth route and protected wrapper |
-| Modify | `src/components/layout/AppHeader.tsx` -- use real user data, wire logout |
+## Technical Details
 
-## Technical Notes
+- All records will be inserted using the data insert tool (not migrations, since this is data, not schema)
+- UUIDs will be generated and referenced across tables to maintain foreign key relationships
+- The deal will have `status = 'income_verification'` so it shows up in the Income Queue
+- The Uber income source will have `vehicle_for_work = true` and `verification_status = 'flagged'` to demonstrate the rideshare rule
+- The SSI source will have `verification_status = 'needs_review'` to demonstrate the benefits review flow
 
-- No database migration needed -- `profiles` table, `user_roles` table, `has_role()` function, and the auto-create-profile trigger already exist
-- Email confirmation is enabled by default (not auto-confirm) -- user will need to verify email before signing in
-- The `profiles` table insert RLS requires `auth.uid() = user_id`, which the existing trigger handles
-- After signup and email confirmation, the user can log in and all RLS-protected queries will work with their session
+## No File Changes
+
+This is purely database seeding -- no code modifications needed.
 
