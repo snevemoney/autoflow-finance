@@ -736,6 +736,9 @@ export type Database = {
         | "contractor"
         | "seasonal"
         | "education"
+        | "unemployed"
+        | "pension"
+        | "government_assistance"
       income_verification_status:
         | "unverified"
         | "verified"
@@ -918,6 +921,9 @@ export const Constants = {
         "contractor",
         "seasonal",
         "education",
+        "unemployed",
+        "pension",
+        "government_assistance",
       ],
       income_verification_status: [
         "unverified",

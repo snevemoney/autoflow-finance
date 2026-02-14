@@ -222,7 +222,7 @@ export const DOCUMENT_TYPE_CONFIG: Record<DocumentType, { label: string; icon: s
 };
 
 // Multi-source income types
-export type IncomeSourceType = 'salaried' | 'part_time' | 'self_employed' | 'contractor' | 'seasonal' | 'education';
+export type IncomeSourceType = 'salaried' | 'part_time' | 'self_employed' | 'contractor' | 'seasonal' | 'education' | 'unemployed' | 'pension' | 'government_assistance';
 export type IncomeVerificationStatus = 'unverified' | 'verified' | 'flagged' | 'insufficient_docs';
 
 export interface IncomeSource {

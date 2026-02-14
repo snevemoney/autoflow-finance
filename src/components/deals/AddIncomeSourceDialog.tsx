@@ -23,6 +23,9 @@ const SOURCE_TYPES: { value: IncomeSourceType; label: string }[] = [
   { value: 'contractor', label: 'Contractor (1099)' },
   { value: 'seasonal', label: 'Seasonal' },
   { value: 'education', label: 'Education / School Employee' },
+  { value: 'unemployed', label: 'Unemployed' },
+  { value: 'pension', label: 'Pension / Retirement' },
+  { value: 'government_assistance', label: 'Government Assistance' },
 ];
 
 export function AddIncomeSourceDialog({ open, onOpenChange, dealId, customerId, onAdded }: AddIncomeSourceDialogProps) {
@@ -156,6 +159,18 @@ export function AddIncomeSourceDialog({ open, onOpenChange, dealId, customerId, 
               <Label>Contract Months (e.g. 10 for school year)</Label>
               <Input type="number" value={contractMonths} onChange={e => setContractMonths(e.target.value)} placeholder="10" />
             </div>
+          )}
+
+          {(sourceType === 'pension' || sourceType === 'government_assistance') && (
+            <p className="text-xs text-muted-foreground">
+              {sourceType === 'pension' ? 'Enter the monthly pension or retirement benefit amount as stated income.' : 'Enter the monthly government benefit amount (SSI, SSDI, SNAP, etc.) as stated income.'}
+            </p>
+          )}
+
+          {sourceType === 'unemployed' && (
+            <p className="text-xs text-muted-foreground">
+              Enter any unemployment benefits received monthly. If none, enter 0.
+            </p>
           )}
         </div>
 

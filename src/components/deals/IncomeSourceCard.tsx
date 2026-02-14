@@ -1,9 +1,9 @@
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
-import { AlertTriangle, CheckCircle2, Clock, FileWarning, Briefcase, GraduationCap, Hammer, Wrench, Leaf, Timer } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Clock, FileWarning, Briefcase, GraduationCap, Hammer, Wrench, Leaf, Timer, UserX, Heart, Shield } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-export type IncomeSourceType = 'salaried' | 'part_time' | 'self_employed' | 'contractor' | 'seasonal' | 'education';
+export type IncomeSourceType = 'salaried' | 'part_time' | 'self_employed' | 'contractor' | 'seasonal' | 'education' | 'unemployed' | 'pension' | 'government_assistance';
 export type IncomeVerificationStatus = 'unverified' | 'verified' | 'flagged' | 'insufficient_docs';
 
 export interface IncomeSource {
@@ -35,6 +35,9 @@ const SOURCE_TYPE_CONFIG: Record<IncomeSourceType, { label: string; icon: typeof
   contractor: { label: 'Contractor (1099)', icon: Wrench, color: 'bg-accent/10 text-accent-foreground border-accent/30' },
   seasonal: { label: 'Seasonal', icon: Leaf, color: 'bg-success/10 text-success border-success/30' },
   education: { label: 'Education', icon: GraduationCap, color: 'bg-secondary text-secondary-foreground border-border' },
+  unemployed: { label: 'Unemployed', icon: UserX, color: 'bg-destructive/10 text-destructive border-destructive/30' },
+  pension: { label: 'Pension / Retirement', icon: Heart, color: 'bg-primary/10 text-primary border-primary/30' },
+  government_assistance: { label: 'Gov. Assistance', icon: Shield, color: 'bg-info/10 text-info border-info/30' },
 };
 
 const STATUS_CONFIG: Record<IncomeVerificationStatus, { label: string; icon: typeof CheckCircle2; className: string }> = {
