@@ -459,6 +459,87 @@ export type Database = {
           },
         ]
       }
+      income_sources: {
+        Row: {
+          calculated_monthly_income: number | null
+          contract_months: number | null
+          created_at: string
+          customer_id: string
+          deal_id: string
+          employer_name: string
+          flag_reasons: string[] | null
+          hourly_rate: number | null
+          hours_per_week: number | null
+          id: string
+          is_primary: boolean
+          job_title: string | null
+          pay_frequency: string | null
+          source_type: Database["public"]["Enums"]["income_source_type"]
+          stated_monthly_income: number
+          updated_at: string
+          verification_status: Database["public"]["Enums"]["income_verification_status"]
+          verified_at: string | null
+          verified_by: string | null
+        }
+        Insert: {
+          calculated_monthly_income?: number | null
+          contract_months?: number | null
+          created_at?: string
+          customer_id: string
+          deal_id: string
+          employer_name: string
+          flag_reasons?: string[] | null
+          hourly_rate?: number | null
+          hours_per_week?: number | null
+          id?: string
+          is_primary?: boolean
+          job_title?: string | null
+          pay_frequency?: string | null
+          source_type: Database["public"]["Enums"]["income_source_type"]
+          stated_monthly_income?: number
+          updated_at?: string
+          verification_status?: Database["public"]["Enums"]["income_verification_status"]
+          verified_at?: string | null
+          verified_by?: string | null
+        }
+        Update: {
+          calculated_monthly_income?: number | null
+          contract_months?: number | null
+          created_at?: string
+          customer_id?: string
+          deal_id?: string
+          employer_name?: string
+          flag_reasons?: string[] | null
+          hourly_rate?: number | null
+          hours_per_week?: number | null
+          id?: string
+          is_primary?: boolean
+          job_title?: string | null
+          pay_frequency?: string | null
+          source_type?: Database["public"]["Enums"]["income_source_type"]
+          stated_monthly_income?: number
+          updated_at?: string
+          verification_status?: Database["public"]["Enums"]["income_verification_status"]
+          verified_at?: string | null
+          verified_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "income_sources_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "income_sources_deal_id_fkey"
+            columns: ["deal_id"]
+            isOneToOne: false
+            referencedRelation: "deals"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       notifications: {
         Row: {
           created_at: string
@@ -648,6 +729,18 @@ export type Database = {
         | "insurance"
         | "id_verification"
         | "other"
+      income_source_type:
+        | "salaried"
+        | "part_time"
+        | "self_employed"
+        | "contractor"
+        | "seasonal"
+        | "education"
+      income_verification_status:
+        | "unverified"
+        | "verified"
+        | "flagged"
+        | "insufficient_docs"
       notification_type: "info" | "success" | "warning" | "error"
       timeline_event_type:
         | "status_change"
@@ -817,6 +910,20 @@ export const Constants = {
         "insurance",
         "id_verification",
         "other",
+      ],
+      income_source_type: [
+        "salaried",
+        "part_time",
+        "self_employed",
+        "contractor",
+        "seasonal",
+        "education",
+      ],
+      income_verification_status: [
+        "unverified",
+        "verified",
+        "flagged",
+        "insufficient_docs",
       ],
       notification_type: ["info", "success", "warning", "error"],
       timeline_event_type: [
