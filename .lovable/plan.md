@@ -1,111 +1,122 @@
 
 
-# Income Document OCR: Extract Text from Screenshots and Phone Photos
+# Multi-Source Income Verification System
 
-## Problem
+## Overview
 
-Applicants often upload screenshots or phone photos of their pay stubs, bank statements, or other income documents instead of PDFs. Currently, these images are stored but never read -- there's no way to extract the actual income figures from them, which means the system can't verify stated income against what the document actually shows.
+Replace the single-income model with a system that tracks multiple income sources per applicant -- each with its own type, calculation formula, document requirements, and fraud flags. This ensures a salaried job's income isn't mixed with a seasonal gig or a contractor's 1099 work, and gives analysts clear visibility into how each source was verified.
 
-## Solution
+## Income Types and Calculation Logic
 
-Add an AI-powered OCR step that automatically extracts income data from uploaded image documents using a Vision model (Gemini Flash, already available via Lovable AI). When an income-related document is uploaded as an image, the system sends it to a backend function that reads the text and pulls out key financial figures.
+| Type | How Monthly Income Is Calculated | Required Documents |
+|---|---|---|
+| **Salaried (W-2)** | Gross pay from stub, or annual salary / 12 | 2 recent pay stubs, W-2 |
+| **Part-Time / Hourly** | Average hours x rate across submitted stubs | 2-3 pay stubs |
+| **Self-Employed / Business Owner** | Net business income from tax returns / 12 | 2 years tax returns, P&L statement |
+| **Contractor (1099)** | Average of 1099 amounts / 12, or bank deposit average | 1099s, 6 months bank statements |
+| **Seasonal** | Annual earnings from tax return / 12 (annualized) | Tax returns, employment letter |
+| **Education / School Employee** | Contract amount / contract months (e.g., 10-month pay spread over 12) | Employment contract, pay stubs |
 
-## How It Works
+## Database Changes
 
-1. Applicant uploads a screenshot or phone photo of a pay stub or bank statement
-2. The file is stored in cloud storage as usual
-3. A new backend function (`extract-income-data`) receives the image and sends it to a Vision AI model
-4. The AI reads the document and returns structured data: gross pay, net pay, pay period, employer name, pay date
-5. The extracted data is saved to the database and displayed in the Income Verification card
-6. Automated fraud flags fire if the extracted figures don't match stated income
+### New enum: `income_source_type`
+Values: `salaried`, `part_time`, `self_employed`, `contractor`, `seasonal`, `education`
 
-## What Changes
+### New enum: `income_verification_status`
+Values: `unverified`, `verified`, `flagged`, `insufficient_docs`
 
-### New Backend Function: `supabase/functions/extract-income-data/index.ts`
+### New table: `income_sources`
 
-- Accepts an image URL (from storage) or base64 image data
-- Sends the image to Gemini Flash with a structured prompt asking it to extract:
-  - Gross pay amount
-  - Net pay amount
-  - Pay period (weekly, biweekly, semimonthly, monthly)
-  - Pay date
-  - Employer name (as printed on document)
-  - Any YTD totals if visible
-- Uses tool calling to return structured JSON (same pattern as `verify-employer`)
-- Returns extracted data or an error if the image is unreadable
+| Column | Type | Notes |
+|---|---|---|
+| id | uuid | Primary key |
+| deal_id | uuid | Links to deals table |
+| customer_id | uuid | Links to customers table |
+| source_type | income_source_type | Which calculation formula to use |
+| employer_name | text | Employer or business name |
+| job_title | text | Nullable |
+| stated_monthly_income | numeric | What applicant claims |
+| calculated_monthly_income | numeric | What documents support (nullable until verified) |
+| pay_frequency | text | weekly, biweekly, semimonthly, monthly, annual, contract |
+| contract_months | integer | For education workers (e.g., 10) |
+| hours_per_week | numeric | For part-time/hourly |
+| hourly_rate | numeric | For part-time/hourly |
+| is_primary | boolean | Default true for first source |
+| verification_status | income_verification_status | Default unverified |
+| flag_reasons | text[] | Array of fraud flag strings |
+| verified_at | timestamptz | Nullable |
+| verified_by | uuid | Nullable |
+| created_at, updated_at | timestamptz | Standard timestamps |
 
-### New Database Table: `extracted_income_data`
+RLS: Authenticated users can SELECT, INSERT, UPDATE. Admins can DELETE.
 
-Stores the OCR results per document:
-- `id`, `deal_id`, `document_id` (links to the uploaded document)
-- `gross_pay`, `net_pay` (numeric)
-- `pay_frequency` (text: weekly, biweekly, semimonthly, monthly)
-- `pay_date` (date)
-- `employer_name_on_doc` (text -- what the document actually says)
-- `ytd_gross` (numeric, nullable)
-- `raw_extracted_text` (text -- full extracted text for audit)
-- `confidence` (text: high, medium, low)
-- `extracted_at` (timestamp)
-- RLS policies for authenticated users
+## Fraud Detection Flags (Per Source)
 
-### Modified: `src/components/deals/DocumentUpload.tsx`
+These checks run automatically based on the data entered and any OCR extractions:
 
-- After upload completes, if the document type is `pay_stub`, `bank_statement`, or `income_verification` AND the file is an image (JPG, PNG), automatically trigger the `extract-income-data` function
-- Show a small "Extracting income data..." spinner on the file card while processing
-- Once complete, show a green checkmark with "Income data extracted" or a warning if extraction failed
+- **Income variance > 15%**: Stated monthly income differs from calculated by more than 15%
+- **Round number suspicion**: Stated income is a suspiciously round number (e.g., exactly $5,000)
+- **Employer name mismatch**: Employer on uploaded document doesn't match what was entered
+- **Employment duration vs. docs**: Claims years of employment but documents show recent hire
+- **Multiple full-time overlap**: Two sources both marked as full-time salaried
+- **Missing documents**: Required documents for the income type haven't been uploaded
+- **Seasonal income inflated**: Seasonal worker's stated monthly exceeds annualized amount
+- **Deposit inconsistency**: Bank deposits don't align with pay stub amounts
 
-### Modified: `src/components/deals/IncomeVerificationCard.tsx`
+## New Components
 
-- Query `extracted_income_data` for the deal's documents
-- Use extracted gross pay and pay frequency to calculate monthly income instead of random simulation:
-  - Weekly: gross pay x 4.33
-  - Biweekly: gross pay x 2.17
-  - Semimonthly: gross pay x 2
-  - Monthly: gross pay as-is
-- Show "Source: Extracted from [document name]" next to calculated income
-- If employer name on document differs from stated employer, show a warning flag
+### `src/components/deals/IncomeSourceCard.tsx`
+A sub-card for each income source showing:
+- Source type badge (color-coded by type)
+- Employer name and job title
+- Stated vs. calculated income with delta percentage
+- Type-specific fields (hours/rate for hourly, contract months for education)
+- Verification status indicator
+- Warning flags if any
 
-### New Component: `src/components/deals/ExtractedDataBadge.tsx`
+### `src/components/deals/AddIncomeSourceDialog.tsx`
+A dialog form to add a new income source:
+- Income type selector (dropdown with 6 types)
+- Dynamic fields that change based on selected type (e.g., hours/rate for hourly, contract months for education)
+- Employer name, job title, stated monthly income
+- Saves to the `income_sources` table
 
-Small inline badge shown on document rows in the deal detail page:
-- Green "Data Extracted" if OCR was successful
-- Yellow "Low Confidence" if the AI wasn't sure about the numbers
-- Gray "Not Processed" for non-income documents
-- Clicking it shows a popover with the extracted figures
+## Modified Components
 
-### Modified: `src/pages/DealDetail.tsx`
+### `src/components/deals/IncomeVerificationCard.tsx`
+Redesigned as a parent container:
+- Queries `income_sources` table for the deal
+- Lists all sources via `IncomeSourceCard` components
+- Shows **total combined monthly income** (sum of all calculated incomes) at the top
+- Shows overall payment-to-income ratio using total income
+- "Add Income Source" button opens the dialog
+- Fraud detection summary section showing all flags across sources
+- Falls back to the existing single-source view if no `income_sources` rows exist (backward compatible)
 
-- Show the `ExtractedDataBadge` next to each document in the documents table
-- Pass extracted data to the `IncomeVerificationCard`
+### `src/components/deals/DealSummaryCard.tsx`
+Update the `computeRisk` function:
+- Use total income from `income_sources` when available instead of single `employmentInfo.monthlyIncome`
+- Add risk score points for unverified income sources and total flag count
 
-## Fraud Detection from Extracted Data
-
-These checks run automatically after extraction:
-
-| Flag | Trigger |
-|---|---|
-| Income mismatch | Extracted gross pay calculates to a monthly figure that differs from stated income by more than 15% |
-| Employer name mismatch | Employer on document doesn't match what applicant wrote on application |
-| Stale document | Pay date is more than 60 days old |
-| Low confidence extraction | AI confidence is "low" -- document may be blurry or tampered |
-| YTD inconsistency | YTD gross divided by months elapsed doesn't align with per-period gross |
+### `src/types/deal.ts`
+Add `IncomeSource` interface and `IncomeSourceType` type for frontend use.
 
 ## Files Summary
 
 | Action | File |
 |---|---|
-| Create | `supabase/functions/extract-income-data/index.ts` |
-| Create | `src/components/deals/ExtractedDataBadge.tsx` |
-| Create | Database migration for `extracted_income_data` table |
-| Modify | `src/components/deals/DocumentUpload.tsx` |
+| Create | Database migration (enums + `income_sources` table) |
+| Create | `src/components/deals/IncomeSourceCard.tsx` |
+| Create | `src/components/deals/AddIncomeSourceDialog.tsx` |
 | Modify | `src/components/deals/IncomeVerificationCard.tsx` |
-| Modify | `src/pages/DealDetail.tsx` |
+| Modify | `src/components/deals/DealSummaryCard.tsx` |
+| Modify | `src/types/deal.ts` |
 
 ## Technical Notes
 
-- Uses Gemini Flash's vision capabilities (multimodal input with image) -- no external OCR service needed
-- Images are converted to base64 before sending to the AI gateway (read from storage bucket)
-- The extraction runs asynchronously after upload so it doesn't block the upload flow
-- Results are cached in the database so the same document is never processed twice
-- Works for both screenshots and phone photos -- the Vision model handles rotation, glare, and partial crops well
+- Income calculation is deterministic and rule-based (not AI) -- keeps it fast and auditable
+- Each income source is independently verifiable so analysts can approve sources one at a time
+- The OCR extraction system (already built) feeds into this: when a document is extracted, it can be linked to a specific income source for cross-checking
+- Backward compatible: deals without `income_sources` rows still work using the existing `employmentInfo` data
+- The `is_primary` flag determines which source displays first and is used as the main reference
 
