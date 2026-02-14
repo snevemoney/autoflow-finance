@@ -1,135 +1,119 @@
 
 
-# Income Calculation Methods: Manual Calculator + AI-Assisted with Tips Support
+# Income Eligibility Rules: Benefits Cap, Vehicle-for-Work Rejection, and Temporary Worker Handling
 
 ## Overview
 
-Add a dual-mode income calculation system per income source -- analysts can either manually calculate MI/YTD using formulas, or let AI extract and compute from documents. The system supports tip adjustments (MI+10 at 10%, MI+20 at 20%, capped there) and automatically flags deals for review when missed work days are detected, triggering a request for 3 months of bank statements (or 12 months for businesses).
+Add three new business rules to the income verification system: (1) government assistance and unemployed applicants can only have 50% of their stated benefits counted toward qualifying income, (2) applicants who use the financed vehicle for commercial/rideshare work (Uber, Lyft, etc.) are automatically flagged for decline, and (3) temporary citizens or workers get special eligibility handling with required documentation.
 
-## How It Works
+## New Business Rules
 
-### Calculation Modes (per income source)
+### 1. Government Assistance / Unemployed: 50% Income Cap
 
-| Mode | Description |
-|---|---|
-| **MI (Monthly Income)** | Standard: use gross pay from stubs to derive monthly income |
-| **YTD (Year-to-Date)** | Divide YTD gross by the number of months elapsed in the year |
-| **MI+10** | Monthly income + 10% tip adjustment |
-| **MI+20** | Monthly income + 20% tip adjustment (maximum allowed) |
-| **AI Auto** | Let the AI extraction engine determine the best calculation |
-| **Manual Override** | Analyst enters a custom calculated amount with a reason |
+When an income source type is `government_assistance` or `unemployed`:
+- The calculator automatically applies a **50% cap** to the stated benefit amount
+- This is a new calc method: the system multiplies by 0.50 and stores the result as `calculated_monthly_income`
+- The UI shows a clear label: "50% benefit cap applied"
+- Analysts can still use Manual Override if there's a documented exception (with reason required)
 
-### Tip Logic
-- MI+10: `calculated_monthly * 1.10`
-- MI+20: `calculated_monthly * 1.20`
-- No higher percentages allowed -- UI enforces max of 20%
+### 2. Vehicle Used for Work (Rideshare) -- Auto-Decline
 
-### YTD Calculation
-- `ytd_gross / months_elapsed_in_year`
-- If pay stubs show a recent start date, use actual months worked instead of calendar months
-- Useful when MI varies month-to-month (seasonal bonuses, overtime fluctuations)
+- Add a new field to the deal or income source level: `vehicle_used_for_work` (boolean)
+- When an analyst or the system detects the vehicle is used for rideshare (Uber, Lyft, DoorDash, etc.):
+  - The deal gets an automatic flag: "Vehicle used for commercial/rideshare work"
+  - The income source gets flagged with verification status `flagged`
+  - A prominent red banner appears on the Income Verification card: "INELIGIBLE -- Vehicle cannot be used for rideshare/commercial work"
+  - The system recommends declining the deal
+- The `AddIncomeSourceDialog` will include a checkbox: "Applicant uses vehicle for work (rideshare, delivery, etc.)"
+- Known rideshare employers are auto-detected from employer name: Uber, Lyft, DoorDash, Instacart, Grubhub, Amazon Flex, etc.
 
-### Missed Work Day Detection
-- Compare expected pay periods to actual stubs submitted
-- If gaps are found (e.g., 2 stubs in 3 months), flag the source as "Possible missed work days"
-- When flagged:
-  - **Individuals**: Request last 3 months bank statements
-  - **Businesses (self-employed)**: Request full 12 months bank statements
-- The flag triggers a `needs_review` status with a document request note
+### 3. Temporary Citizens / Workers
+
+- Add a new field: `residency_status` on the customer or deal level with values: `citizen`, `permanent_resident`, `temporary_worker`, `visa_holder`, `other`
+- For temporary workers/visa holders:
+  - Flag the deal: "Temporary residency -- verify work authorization"
+  - Request additional documents: valid work permit/visa, employment authorization document (EAD)
+  - Income can only be counted for the duration of the work authorization (not assumed permanent)
+  - If authorization expires within the loan term, flag: "Work authorization expires before loan maturity"
+- The `AddIncomeSourceDialog` or a deal-level section will allow setting residency status
 
 ## Database Changes
 
-### Alter `income_sources` table -- add columns:
+### New columns on `income_sources`:
 
 | Column | Type | Default | Purpose |
 |---|---|---|---|
-| `calc_method` | text | `'mi'` | Which formula: `mi`, `ytd`, `mi_plus_10`, `mi_plus_20`, `manual` |
-| `tip_percentage` | integer | `null` | 10 or 20 if tips apply, null otherwise |
-| `ytd_gross` | numeric | `null` | Year-to-date gross from stubs/extractions |
-| `ytd_months` | integer | `null` | Number of months the YTD covers |
-| `manual_override_amount` | numeric | `null` | Analyst-entered override value |
-| `manual_override_reason` | text | `null` | Why the override was used |
-| `missed_days_flag` | boolean | `false` | Whether missed work days were detected |
-| `additional_docs_requested` | text[] | `'{}'` | List of additional docs requested (e.g., "3 months bank statements") |
+| `vehicle_for_work` | boolean | false | Whether applicant uses financed vehicle for rideshare/commercial work |
+| `benefit_cap_applied` | boolean | false | Whether 50% benefit cap was applied |
 
-### Add `needs_review` to `income_verification_status` enum
-New value alongside existing `unverified`, `verified`, `flagged`, `insufficient_docs`.
+### New columns on `deals`:
 
-## New Component: `IncomeCalculator.tsx`
+| Column | Type | Default | Purpose |
+|---|---|---|---|
+| `residency_status` | text | null | Applicant residency: citizen, permanent_resident, temporary_worker, visa_holder, other |
+| `work_authorization_expiry` | date | null | When work permit/visa expires |
 
-A calculator panel embedded inside each `IncomeSourceCard` that lets analysts:
+## Component Changes
 
-1. **Select calculation method** via radio/toggle buttons: MI | YTD | MI+10 | MI+20 | Manual
-2. **See live computed result** based on the selected method and available data
-3. **YTD inputs**: YTD gross amount and number of months -- auto-filled from OCR if available
-4. **Tip adjustment**: Automatically applies 10% or 20% to the base MI
-5. **Manual override**: Free-form amount field with required reason textarea
-6. **Apply button**: Saves the selected method and computed value to `income_sources`
-7. **Missed days alert**: If gaps detected, shows a warning banner with a button to request additional documents
-
-### Calculator Display
-
-```text
-+-----------------------------------------------+
-| Income Calculator               [MI] [YTD]    |
-|                          [MI+10] [MI+20] [Man] |
-|-----------------------------------------------|
-| Base MI (from stubs):          $4,200/mo       |
-| YTD Gross:            $25,200 / 6 mo = $4,200 |
-| Tip Adjustment:                     +10% = $420|
-|-----------------------------------------------|
-| >> Calculated Total:           $4,620/mo  <<   |
-|                                                |
-| [!] Possible missed work days detected         |
-|     Request: 3 months bank statements          |
-|                                  [Request Docs]|
-|                                                |
-|                           [Apply Calculation]  |
-+-----------------------------------------------+
-```
-
-## Modified Components
+### `IncomeCalculator.tsx`
+- For `government_assistance` and `unemployed` source types:
+  - Auto-apply 50% cap as the default calculation
+  - Show "50% Benefit Cap" as a new calc method button (replaces tip options for these types)
+  - Disable MI+10 and MI+20 (tips don't apply to benefits)
+  - Display: "Benefits income capped at 50% per policy"
+- For sources where `vehicle_for_work` is true:
+  - Show a red "INELIGIBLE" banner instead of the calculator
+  - Disable the Apply button
 
 ### `IncomeSourceCard.tsx`
-- Import and render `IncomeCalculator` as an expandable section (like Analyst Actions)
-- Display the active calc method as a small badge (e.g., "MI+10" badge next to calculated income)
-- Show missed days warning icon if `missed_days_flag` is true
-
-### `IncomeSourceActions.tsx`
-- Add `needs_review` to the status dropdown options
-- When status is set to `needs_review`, auto-populate a note about required additional documents
-
-### `IncomeVerificationCard.tsx`
-- When computing totals, use the tip-adjusted or YTD-derived amounts (whatever `calc_method` dictates)
-- Show a summary badge if any source has missed days flagged
-- Add a "Review Required" banner at the top if any source is in `needs_review` status
+- Show a red "Rideshare/Commercial" badge if `vehicle_for_work` is true
+- Show a "50% Cap" badge for government assistance/unemployed sources
+- Show residency warning icon if temporary worker
 
 ### `AddIncomeSourceDialog.tsx`
-- Add initial calc method selector (default MI)
-- For tip-eligible types (salaried, part_time), show tip percentage toggle (0%, 10%, 20%)
+- Add "Vehicle used for work" checkbox (shown for all types, prominent for part-time/contractor)
+- Auto-detect rideshare employers: if employer name matches known rideshare companies, auto-check the box and show a warning
+- For `government_assistance` and `unemployed`: show info text explaining the 50% cap
 
-### `extract-income-data` Edge Function
-- Already extracts `ytd_gross` -- no changes needed to the AI prompt
-- The extracted YTD value will auto-populate the calculator's YTD field
+### `IncomeVerificationCard.tsx`
+- Add "INELIGIBLE" red banner at top if any source has `vehicle_for_work = true`
+- When computing totals, apply 50% cap for benefit sources
+- Add residency status indicator if temporary worker
+- Show work authorization expiry warning if applicable
+
+### New: Deal-level residency section (in `DealDetail.tsx` or a new component)
+- Dropdown for residency status
+- Date picker for work authorization expiry
+- Auto-flag if expiry falls within loan term
+
+## Auto-Detection Rules
+
+Known rideshare/delivery employer names (case-insensitive matching):
+- Uber, Lyft, DoorDash, Grubhub, Instacart, Amazon Flex, Postmates, Spark Driver, Gopuff, Shipt, Roadie
+
+When any of these are entered as an employer name:
+1. Auto-check `vehicle_for_work`
+2. Show warning: "This employer is a known rideshare/delivery service. Vehicle-for-work deals are not eligible."
+3. Auto-flag the source
 
 ## Files Summary
 
 | Action | File |
 |---|---|
-| Create | Database migration (new columns + enum value) |
-| Create | `src/components/deals/IncomeCalculator.tsx` |
-| Modify | `src/components/deals/IncomeSourceCard.tsx` |
-| Modify | `src/components/deals/IncomeSourceActions.tsx` |
-| Modify | `src/components/deals/IncomeVerificationCard.tsx` |
-| Modify | `src/components/deals/AddIncomeSourceDialog.tsx` |
-| Modify | `src/types/deal.ts` |
+| Create | Database migration (new columns on income_sources and deals) |
+| Modify | `src/components/deals/IncomeCalculator.tsx` -- 50% cap mode, rideshare block |
+| Modify | `src/components/deals/IncomeSourceCard.tsx` -- new badges and warnings |
+| Modify | `src/components/deals/AddIncomeSourceDialog.tsx` -- vehicle-for-work checkbox, rideshare detection, benefit cap info |
+| Modify | `src/components/deals/IncomeVerificationCard.tsx` -- ineligible banner, 50% cap in totals |
+| Modify | `src/types/deal.ts` -- new fields |
 
 ## Business Rules Enforced
 
-1. Tip percentage maxes at 20% -- UI prevents higher values
-2. YTD method requires at least 1 month elapsed to avoid division errors
-3. Manual override always requires a written reason (audit trail)
-4. Missed work day flag automatically triggers `needs_review` status
-5. Document requests differ by source type: 3 months bank statements for individuals, 12 months for businesses
-6. AI-extracted YTD values auto-populate but can be overridden manually
+1. Government assistance and unemployed benefits are capped at 50% for qualifying income
+2. Rideshare/delivery drivers using financed vehicle are flagged as ineligible -- deal should be declined
+3. Known rideshare employers are auto-detected by name matching
+4. Temporary workers require work authorization documentation
+5. Deals are flagged if work authorization expires before loan maturity
+6. Tip adjustments (MI+10, MI+20) are disabled for benefit-based income types
+7. Manual override remains available for documented exceptions with required justification
 
