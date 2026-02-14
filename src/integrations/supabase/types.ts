@@ -471,6 +471,8 @@ export type Database = {
       }
       income_sources: {
         Row: {
+          additional_docs_requested: string[]
+          calc_method: string
           calculated_monthly_income: number | null
           contract_months: number | null
           created_at: string
@@ -483,15 +485,23 @@ export type Database = {
           id: string
           is_primary: boolean
           job_title: string | null
+          manual_override_amount: number | null
+          manual_override_reason: string | null
+          missed_days_flag: boolean
           pay_frequency: string | null
           source_type: Database["public"]["Enums"]["income_source_type"]
           stated_monthly_income: number
+          tip_percentage: number | null
           updated_at: string
           verification_status: Database["public"]["Enums"]["income_verification_status"]
           verified_at: string | null
           verified_by: string | null
+          ytd_gross: number | null
+          ytd_months: number | null
         }
         Insert: {
+          additional_docs_requested?: string[]
+          calc_method?: string
           calculated_monthly_income?: number | null
           contract_months?: number | null
           created_at?: string
@@ -504,15 +514,23 @@ export type Database = {
           id?: string
           is_primary?: boolean
           job_title?: string | null
+          manual_override_amount?: number | null
+          manual_override_reason?: string | null
+          missed_days_flag?: boolean
           pay_frequency?: string | null
           source_type: Database["public"]["Enums"]["income_source_type"]
           stated_monthly_income?: number
+          tip_percentage?: number | null
           updated_at?: string
           verification_status?: Database["public"]["Enums"]["income_verification_status"]
           verified_at?: string | null
           verified_by?: string | null
+          ytd_gross?: number | null
+          ytd_months?: number | null
         }
         Update: {
+          additional_docs_requested?: string[]
+          calc_method?: string
           calculated_monthly_income?: number | null
           contract_months?: number | null
           created_at?: string
@@ -525,13 +543,19 @@ export type Database = {
           id?: string
           is_primary?: boolean
           job_title?: string | null
+          manual_override_amount?: number | null
+          manual_override_reason?: string | null
+          missed_days_flag?: boolean
           pay_frequency?: string | null
           source_type?: Database["public"]["Enums"]["income_source_type"]
           stated_monthly_income?: number
+          tip_percentage?: number | null
           updated_at?: string
           verification_status?: Database["public"]["Enums"]["income_verification_status"]
           verified_at?: string | null
           verified_by?: string | null
+          ytd_gross?: number | null
+          ytd_months?: number | null
         }
         Relationships: [
           {
@@ -754,6 +778,7 @@ export type Database = {
         | "verified"
         | "flagged"
         | "insufficient_docs"
+        | "needs_review"
       notification_type: "info" | "success" | "warning" | "error"
       timeline_event_type:
         | "status_change"
@@ -940,6 +965,7 @@ export const Constants = {
         "verified",
         "flagged",
         "insufficient_docs",
+        "needs_review",
       ],
       notification_type: ["info", "success", "warning", "error"],
       timeline_event_type: [

@@ -19,6 +19,7 @@ const STATUS_OPTIONS: { value: IncomeVerificationStatus; label: string; icon: ty
   { value: 'verified', label: 'Verified', icon: CheckCircle2, className: 'text-success' },
   { value: 'flagged', label: 'Flagged', icon: AlertTriangle, className: 'text-warning' },
   { value: 'insufficient_docs', label: 'Insufficient Docs', icon: FileWarning, className: 'text-destructive' },
+  { value: 'needs_review', label: 'Needs Review', icon: Clock, className: 'text-info' },
 ];
 
 export function IncomeSourceActions({ sourceId, currentStatus, onUpdated }: IncomeSourceActionsProps) {
@@ -39,8 +40,21 @@ export function IncomeSourceActions({ sourceId, currentStatus, onUpdated }: Inco
         updates.verified_at = new Date().toISOString();
       }
 
+      // If needs_review, auto-populate note about additional docs
+      if (status === 'needs_review' && !note.trim()) {
+        const { data: current } = await supabase
+          .from('income_sources')
+          .select('flag_reasons')
+          .eq('id', sourceId)
+          .single();
+        const existing = (current?.flag_reasons as string[]) || [];
+        if (!existing.includes('Review required — additional documentation needed')) {
+          updates.flag_reasons = [...existing, 'Review required — additional documentation needed'];
+        }
+      }
+
       // If flagging, append note as a flag reason
-      if (status === 'flagged' && note.trim()) {
+      if ((status === 'flagged' || status === 'needs_review') && note.trim()) {
         const { data: current } = await supabase
           .from('income_sources')
           .select('flag_reasons')

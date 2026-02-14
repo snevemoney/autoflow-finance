@@ -1,11 +1,13 @@
+import { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
-import { AlertTriangle, CheckCircle2, Clock, FileWarning, Briefcase, GraduationCap, Hammer, Wrench, Leaf, Timer, UserX, Heart, Shield, FileSearch } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Clock, FileWarning, Briefcase, GraduationCap, Hammer, Wrench, Leaf, Timer, UserX, Heart, Shield, FileSearch, ChevronDown, ChevronUp, Calculator, ClipboardCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { IncomeSourceActions } from './IncomeSourceActions';
+import { IncomeCalculator, type CalcMethod } from './IncomeCalculator';
 
 export type IncomeSourceType = 'salaried' | 'part_time' | 'self_employed' | 'contractor' | 'seasonal' | 'education' | 'unemployed' | 'pension' | 'government_assistance';
-export type IncomeVerificationStatus = 'unverified' | 'verified' | 'flagged' | 'insufficient_docs';
+export type IncomeVerificationStatus = 'unverified' | 'verified' | 'flagged' | 'insufficient_docs' | 'needs_review';
 
 export interface IncomeSource {
   id: string;
@@ -27,6 +29,14 @@ export interface IncomeSource {
   verified_by: string | null;
   created_at: string;
   updated_at: string;
+  calc_method: CalcMethod;
+  tip_percentage: number | null;
+  ytd_gross: number | null;
+  ytd_months: number | null;
+  manual_override_amount: number | null;
+  manual_override_reason: string | null;
+  missed_days_flag: boolean;
+  additional_docs_requested: string[];
 }
 
 export interface LinkedExtraction {
@@ -56,6 +66,15 @@ const STATUS_CONFIG: Record<IncomeVerificationStatus, { label: string; icon: typ
   verified: { label: 'Verified', icon: CheckCircle2, className: 'text-success' },
   flagged: { label: 'Flagged', icon: AlertTriangle, className: 'text-warning' },
   insufficient_docs: { label: 'Insufficient Docs', icon: FileWarning, className: 'text-destructive' },
+  needs_review: { label: 'Needs Review', icon: ClipboardCheck, className: 'text-info' },
+};
+
+const CALC_METHOD_LABELS: Record<CalcMethod, string> = {
+  mi: 'MI',
+  ytd: 'YTD',
+  mi_plus_10: 'MI+10',
+  mi_plus_20: 'MI+20',
+  manual: 'Manual',
 };
 
 interface IncomeSourceCardProps {
@@ -65,10 +84,12 @@ interface IncomeSourceCardProps {
 }
 
 export function IncomeSourceCard({ source, linkedExtractions, onUpdated }: IncomeSourceCardProps) {
+  const [calcOpen, setCalcOpen] = useState(false);
   const typeConfig = SOURCE_TYPE_CONFIG[source.source_type];
   const statusConfig = STATUS_CONFIG[source.verification_status];
   const TypeIcon = typeConfig.icon;
   const StatusIcon = statusConfig.icon;
+  const showCalcBadge = source.calc_method && source.calc_method !== 'mi';
 
   const stated = source.stated_monthly_income;
   const calculated = source.calculated_monthly_income;
@@ -90,6 +111,14 @@ export function IncomeSourceCard({ source, linkedExtractions, onUpdated }: Incom
             </Badge>
             {source.is_primary && (
               <Badge variant="secondary" className="text-xs">Primary</Badge>
+            )}
+            {showCalcBadge && (
+              <Badge variant="outline" className="text-xs bg-primary/10 text-primary border-primary/30">
+                {CALC_METHOD_LABELS[source.calc_method]}
+              </Badge>
+            )}
+            {source.missed_days_flag && (
+              <AlertTriangle className="h-3.5 w-3.5 text-warning" />
             )}
           </div>
           <div className={cn('flex items-center gap-1 text-xs', statusConfig.className)}>
@@ -156,6 +185,39 @@ export function IncomeSourceCard({ source, linkedExtractions, onUpdated }: Incom
                 {flag}
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Income Calculator */}
+        {onUpdated && (
+          <div className="border-t border-border pt-2 mt-2">
+            <button
+              onClick={() => setCalcOpen(!calcOpen)}
+              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors w-full"
+            >
+              {calcOpen ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+              <Calculator className="h-3 w-3" />
+              Income Calculator
+            </button>
+            {calcOpen && (
+              <div className="mt-2">
+                <IncomeCalculator
+                  sourceId={source.id}
+                  sourceType={source.source_type}
+                  statedMonthlyIncome={source.stated_monthly_income}
+                  calculatedMonthlyIncome={source.calculated_monthly_income}
+                  currentCalcMethod={source.calc_method ?? 'mi'}
+                  currentTipPercentage={source.tip_percentage}
+                  currentYtdGross={source.ytd_gross}
+                  currentYtdMonths={source.ytd_months}
+                  currentManualAmount={source.manual_override_amount}
+                  currentManualReason={source.manual_override_reason}
+                  missedDaysFlag={source.missed_days_flag ?? false}
+                  additionalDocsRequested={source.additional_docs_requested ?? []}
+                  onUpdated={onUpdated}
+                />
+              </div>
+            )}
           </div>
         )}
 
