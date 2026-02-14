@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { DollarSign, TrendingUp, TrendingDown, Briefcase, AlertTriangle, FileSearch, Plus } from 'lucide-react';
+import { DollarSign, TrendingUp, TrendingDown, Briefcase, AlertTriangle, FileSearch, Plus, ClipboardCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { Deal } from '@/types/deal';
 import { supabase } from '@/integrations/supabase/client';
@@ -153,6 +153,8 @@ export function IncomeVerificationCard({ deal }: IncomeVerificationCardProps) {
   if (hasMultiSource) {
     const totalStated = incomeSources.reduce((s, src) => s + src.stated_monthly_income, 0);
     const totalCalculated = incomeSources.reduce((s, src) => s + (src.calculated_monthly_income ?? src.stated_monthly_income), 0);
+    const hasMissedDays = incomeSources.some(s => s.missed_days_flag);
+    const hasNeedsReview = incomeSources.some(s => s.verification_status === 'needs_review');
     const monthlyPayment = deal.financingTerms.monthlyPayment;
     const pti = totalCalculated > 0 ? ((monthlyPayment / totalCalculated) * 100).toFixed(1) : 'N/A';
     const ptiHealthy = typeof pti === 'string' ? false : parseFloat(pti) <= 20;
@@ -181,6 +183,24 @@ export function IncomeVerificationCard({ deal }: IncomeVerificationCardProps) {
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
+          {/* Review required banner */}
+          {hasNeedsReview && (
+            <div className="flex items-center gap-2 p-3 rounded-lg bg-info/10 border border-info/30 text-sm">
+              <ClipboardCheck className="h-4 w-4 text-info shrink-0" />
+              <span className="text-info font-medium">Review Required — one or more income sources need additional documentation</span>
+            </div>
+          )}
+
+          {/* Missed days summary */}
+          {hasMissedDays && (
+            <div className="flex items-center gap-2 text-xs">
+              <Badge variant="outline" className="text-warning border-warning/30">
+                <AlertTriangle className="h-3 w-3 mr-1" />
+                Missed work days detected
+              </Badge>
+            </div>
+          )}
+
           {/* Total income summary */}
           <div className="grid grid-cols-2 gap-3 text-sm">
             <div>

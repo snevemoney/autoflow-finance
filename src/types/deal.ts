@@ -223,7 +223,8 @@ export const DOCUMENT_TYPE_CONFIG: Record<DocumentType, { label: string; icon: s
 
 // Multi-source income types
 export type IncomeSourceType = 'salaried' | 'part_time' | 'self_employed' | 'contractor' | 'seasonal' | 'education' | 'unemployed' | 'pension' | 'government_assistance';
-export type IncomeVerificationStatus = 'unverified' | 'verified' | 'flagged' | 'insufficient_docs';
+export type IncomeVerificationStatus = 'unverified' | 'verified' | 'flagged' | 'insufficient_docs' | 'needs_review';
+export type CalcMethod = 'mi' | 'ytd' | 'mi_plus_10' | 'mi_plus_20' | 'manual';
 
 export interface IncomeSource {
   id: string;
@@ -245,4 +246,12 @@ export interface IncomeSource {
   verified_by: string | null;
   created_at: string;
   updated_at: string;
+  calc_method: CalcMethod;
+  tip_percentage: number | null;
+  ytd_gross: number | null;
+  ytd_months: number | null;
+  manual_override_amount: number | null;
+  manual_override_reason: string | null;
+  missed_days_flag: boolean;
+  additional_docs_requested: string[];
 }
