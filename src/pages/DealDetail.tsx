@@ -8,6 +8,7 @@ import { DealSummaryCard } from '@/components/deals/DealSummaryCard';
 import { IncomeVerificationCard } from '@/components/deals/IncomeVerificationCard';
 import { EmployerVerificationCard } from '@/components/deals/EmployerVerificationCard';
 import { ExtractedDataBadge, type ExtractedData } from '@/components/deals/ExtractedDataBadge';
+import type { IncomeSource } from '@/components/deals/IncomeSourceCard';
 import { getDealById } from '@/data/mockData';
 import { supabase } from '@/integrations/supabase/client';
 import { useQuery } from '@tanstack/react-query';
@@ -62,6 +63,21 @@ export default function DealDetail() {
       const map: Record<string, ExtractedData> = {};
       (data ?? []).forEach((item: any) => { map[item.document_id] = item; });
       return map;
+    },
+    enabled: !!deal,
+  });
+
+  // Fetch income sources for risk computation
+  const { data: incomeSources } = useQuery({
+    queryKey: ['income-sources-detail', deal?.id],
+    queryFn: async () => {
+      if (!deal) return [];
+      const { data, error } = await supabase
+        .from('income_sources')
+        .select('*')
+        .eq('deal_id', deal.id);
+      if (error) throw error;
+      return (data ?? []) as IncomeSource[];
     },
     enabled: !!deal,
   });
@@ -428,7 +444,7 @@ export default function DealDetail() {
           {/* Sidebar */}
           <div className="space-y-6">
             {/* Deal Summary */}
-            <DealSummaryCard deal={deal} />
+            <DealSummaryCard deal={deal} incomeSources={incomeSources} />
 
             {/* Income Verification */}
             <IncomeVerificationCard deal={deal} />

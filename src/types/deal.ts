@@ -220,3 +220,29 @@ export const DOCUMENT_TYPE_CONFIG: Record<DocumentType, { label: string; icon: s
   id_verification: { label: 'ID Verification', icon: 'CreditCard' },
   other: { label: 'Other', icon: 'File' },
 };
+
+// Multi-source income types
+export type IncomeSourceType = 'salaried' | 'part_time' | 'self_employed' | 'contractor' | 'seasonal' | 'education';
+export type IncomeVerificationStatus = 'unverified' | 'verified' | 'flagged' | 'insufficient_docs';
+
+export interface IncomeSource {
+  id: string;
+  deal_id: string;
+  customer_id: string;
+  source_type: IncomeSourceType;
+  employer_name: string;
+  job_title: string | null;
+  stated_monthly_income: number;
+  calculated_monthly_income: number | null;
+  pay_frequency: string | null;
+  contract_months: number | null;
+  hours_per_week: number | null;
+  hourly_rate: number | null;
+  is_primary: boolean;
+  verification_status: IncomeVerificationStatus;
+  flag_reasons: string[];
+  verified_at: string | null;
+  verified_by: string | null;
+  created_at: string;
+  updated_at: string;
+}

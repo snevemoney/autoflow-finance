@@ -2,30 +2,36 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Zap, AlertTriangle, CheckCircle2, XCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { Deal } from '@/types/deal';
+import type { IncomeSource } from '@/components/deals/IncomeSourceCard';
 
 interface DealSummaryCardProps {
   deal: Deal;
+  incomeSources?: IncomeSource[];
 }
 
 type RiskLevel = 'low' | 'moderate' | 'high';
 
-function computeRisk(deal: DealSummaryCardProps['deal']): { level: RiskLevel; score: number; concerns: string[] } {
+function computeRisk(deal: DealSummaryCardProps['deal'], incomeSources?: IncomeSource[]): { level: RiskLevel; score: number; concerns: string[] } {
   let score = 0;
   const concerns: string[] = [];
 
-  // Credit score
   const creditScore = deal.creditInfo?.score ?? 0;
   if (creditScore >= 720) score += 0;
   else if (creditScore >= 660) { score += 15; concerns.push('Near-prime credit'); }
   else if (creditScore >= 600) { score += 30; concerns.push('Subprime credit'); }
   else { score += 50; concerns.push('Deep subprime credit'); }
 
-  // LTV
   if (deal.ltv > 120) { score += 25; concerns.push(`High LTV (${deal.ltv}%)`); }
   else if (deal.ltv > 100) { score += 15; concerns.push(`Elevated LTV (${deal.ltv}%)`); }
 
-  // Income-to-payment ratio
-  const monthlyIncome = deal.customer.employmentInfo?.monthlyIncome ?? 0;
+  // Income — use multi-source total if available
+  let monthlyIncome: number;
+  if (incomeSources && incomeSources.length > 0) {
+    monthlyIncome = incomeSources.reduce((s, src) => s + (src.calculated_monthly_income ?? src.stated_monthly_income), 0);
+  } else {
+    monthlyIncome = deal.customer.employmentInfo?.monthlyIncome ?? 0;
+  }
+
   const payment = deal.financingTerms.monthlyPayment;
   if (monthlyIncome > 0) {
     const ratio = payment / monthlyIncome;
@@ -33,13 +39,19 @@ function computeRisk(deal: DealSummaryCardProps['deal']): { level: RiskLevel; sc
     else if (ratio > 0.15) { score += 10; }
   }
 
-  // Flags
+  // Unverified income sources
+  if (incomeSources && incomeSources.length > 0) {
+    const unverified = incomeSources.filter(s => s.verification_status === 'unverified').length;
+    if (unverified > 0) { score += unverified * 5; concerns.push(`${unverified} unverified income source(s)`); }
+    const totalFlags = incomeSources.reduce((s, src) => s + src.flag_reasons.length, 0);
+    if (totalFlags > 0) { score += totalFlags * 5; concerns.push(`${totalFlags} income flag(s)`); }
+  }
+
   if (deal.flags.length > 0) {
     score += deal.flags.length * 10;
     deal.flags.forEach(f => concerns.push(f));
   }
 
-  // Document completeness
   const docs = deal.documents.filter(d => d.status === 'verified').length;
   const totalDocs = deal.documents.length;
   if (totalDocs > 0 && docs / totalDocs < 0.5) {
@@ -51,9 +63,15 @@ function computeRisk(deal: DealSummaryCardProps['deal']): { level: RiskLevel; sc
   return { level, score: Math.min(score, 100), concerns };
 }
 
-export function DealSummaryCard({ deal }: DealSummaryCardProps) {
-  const risk = computeRisk(deal);
-  const monthlyIncome = deal.customer.employmentInfo?.monthlyIncome ?? 0;
+export function DealSummaryCard({ deal, incomeSources }: DealSummaryCardProps) {
+  const risk = computeRisk(deal, incomeSources);
+
+  let monthlyIncome: number;
+  if (incomeSources && incomeSources.length > 0) {
+    monthlyIncome = incomeSources.reduce((s, src) => s + (src.calculated_monthly_income ?? src.stated_monthly_income), 0);
+  } else {
+    monthlyIncome = deal.customer.employmentInfo?.monthlyIncome ?? 0;
+  }
   const paymentRatio = monthlyIncome > 0
     ? ((deal.financingTerms.monthlyPayment / monthlyIncome) * 100).toFixed(1)
     : 'N/A';
@@ -74,7 +92,6 @@ export function DealSummaryCard({ deal }: DealSummaryCardProps) {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* Risk Signal */}
         <div className={cn('flex items-center gap-3 p-3 rounded-lg border', riskColors[risk.level])}>
           <RiskIcon className="h-5 w-5 shrink-0" />
           <div>
@@ -83,7 +100,6 @@ export function DealSummaryCard({ deal }: DealSummaryCardProps) {
           </div>
         </div>
 
-        {/* Key Metrics */}
         <div className="grid grid-cols-2 gap-3 text-sm">
           <div>
             <p className="text-muted-foreground text-xs">Customer</p>
@@ -118,7 +134,6 @@ export function DealSummaryCard({ deal }: DealSummaryCardProps) {
           </div>
         </div>
 
-        {/* Concerns */}
         {risk.concerns.length > 0 && (
           <div>
             <p className="text-xs font-medium text-muted-foreground mb-1">Concerns</p>
