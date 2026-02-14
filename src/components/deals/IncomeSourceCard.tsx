@@ -2,6 +2,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { AlertTriangle, CheckCircle2, Clock, FileWarning, Briefcase, GraduationCap, Hammer, Wrench, Leaf, Timer, UserX, Heart, Shield, FileSearch } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { IncomeSourceActions } from './IncomeSourceActions';
 
 export type IncomeSourceType = 'salaried' | 'part_time' | 'self_employed' | 'contractor' | 'seasonal' | 'education' | 'unemployed' | 'pension' | 'government_assistance';
 export type IncomeVerificationStatus = 'unverified' | 'verified' | 'flagged' | 'insufficient_docs';
@@ -60,9 +61,10 @@ const STATUS_CONFIG: Record<IncomeVerificationStatus, { label: string; icon: typ
 interface IncomeSourceCardProps {
   source: IncomeSource;
   linkedExtractions?: LinkedExtraction[];
+  onUpdated?: () => void;
 }
 
-export function IncomeSourceCard({ source, linkedExtractions }: IncomeSourceCardProps) {
+export function IncomeSourceCard({ source, linkedExtractions, onUpdated }: IncomeSourceCardProps) {
   const typeConfig = SOURCE_TYPE_CONFIG[source.source_type];
   const statusConfig = STATUS_CONFIG[source.verification_status];
   const TypeIcon = typeConfig.icon;
@@ -155,6 +157,15 @@ export function IncomeSourceCard({ source, linkedExtractions }: IncomeSourceCard
               </div>
             ))}
           </div>
+        )}
+
+        {/* Analyst actions */}
+        {onUpdated && (
+          <IncomeSourceActions
+            sourceId={source.id}
+            currentStatus={source.verification_status}
+            onUpdated={onUpdated}
+          />
         )}
       </CardContent>
     </Card>
