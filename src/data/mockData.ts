@@ -246,7 +246,100 @@ const generateDeal = (id: number, status: DealStatus): Deal => {
   };
 };
 
+// Seeded deal matching database records (3 income sources + unmatched extraction)
+const seededDeal: Deal = {
+  id: 'a1b2c3d4-0004-4000-8000-000000000004',
+  dealNumber: 'AF-2026-00001',
+  status: 'income_verification',
+  priority: 'normal',
+  customer: {
+    id: 'a1b2c3d4-0002-4000-8000-000000000002',
+    firstName: 'Jane',
+    lastName: 'Doe',
+    email: 'jane.doe@example.com',
+    phone: '(555) 867-5309',
+    address: { street: '123 Main St', city: 'Dallas', state: 'TX', zip: '75201' },
+    employmentInfo: {
+      employer: 'Acme Corp',
+      jobTitle: 'Senior Analyst',
+      monthlyIncome: 5500,
+      yearsEmployed: 3,
+    },
+  },
+  vehicle: {
+    year: 2024,
+    make: 'Toyota',
+    model: 'Camry',
+    trim: 'SE',
+    vin: '1HGCG5655WA041389',
+    mileage: 12000,
+    color: 'Silver',
+    condition: 'used',
+    invoicePrice: 28500,
+    msrp: 30000,
+  },
+  financingTerms: {
+    loanAmount: 25000,
+    downPayment: 3000,
+    apr: 6.9,
+    termMonths: 72,
+    monthlyPayment: 436.31,
+    totalInterest: 6414.32,
+    totalCost: 31414.32,
+  },
+  creditInfo: {
+    score: 680,
+    bureau: 'experian',
+    pulledAt: '2026-02-10T10:00:00Z',
+    tier: 'near_prime',
+  },
+  dealerId: 'a1b2c3d4-0001-4000-8000-000000000001',
+  dealerName: 'Metro Auto Group',
+  dealerContact: 'John Metro',
+  assignedTo: 'user-3',
+  assignedDepartment: 'income',
+  documents: [
+    {
+      id: 'a1b2c3d4-0020-4000-8000-000000000001',
+      dealId: 'a1b2c3d4-0004-4000-8000-000000000004',
+      name: 'Pay Stub - Jan 2026',
+      type: 'pay_stub',
+      fileUrl: 'documents/test/jane_doe_paystub.png',
+      fileSize: 245000,
+      uploadedAt: '2026-02-10T10:00:00Z',
+      uploadedBy: 'John Metro',
+      status: 'pending',
+    },
+  ],
+  notes: [
+    {
+      id: 'note-seed-1',
+      dealId: 'a1b2c3d4-0004-4000-8000-000000000004',
+      content: 'Seeded test deal with 3 income sources for calculator testing.',
+      createdAt: '2026-02-10T10:00:00Z',
+      createdBy: 'System',
+      isInternal: true,
+    },
+  ],
+  timeline: [
+    {
+      id: 'event-seed-1',
+      dealId: 'a1b2c3d4-0004-4000-8000-000000000004',
+      type: 'status_change',
+      description: 'Deal submitted',
+      createdAt: '2026-02-10T10:00:00Z',
+      createdBy: 'John Metro',
+    },
+  ],
+  createdAt: '2026-02-10T10:00:00Z',
+  updatedAt: '2026-02-10T10:00:00Z',
+  flags: [],
+  ltv: 77,
+};
+
 export const mockDeals: Deal[] = [
+  // Seeded deal with real DB income sources
+  seededDeal,
   // New submissions
   ...Array.from({ length: 4 }, (_, i) => generateDeal(i + 1, 'new_submission')),
   // Document review
