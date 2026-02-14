@@ -40,7 +40,7 @@ import {
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { toast } from '@/hooks/use-toast';
 
 export default function DealDetail() {
@@ -84,6 +84,36 @@ export default function DealDetail() {
 
   const INCOME_DOC_TYPES = ['pay_stub', 'bank_statement', 'income_verification'];
 
+  // Check if any income source uses vehicle for commercial work
+  const hasVehicleForWork = incomeSources?.some(s => s.vehicle_for_work) ?? false;
+
+  // Auto-decline deal when vehicle_for_work is detected
+  useEffect(() => {
+    if (!hasVehicleForWork || !deal) return;
+    if (deal.status === 'declined' || deal.status === 'funded') return;
+
+    const autoDecline = async () => {
+      const { error } = await supabase
+        .from('deals')
+        .update({
+          status: 'declined' as any,
+          decision_notes: 'Auto-declined: Vehicle used for rideshare/commercial work. Ineligible per policy.',
+          decision_at: new Date().toISOString(),
+        })
+        .eq('id', deal.id);
+
+      if (!error) {
+        toast({
+          title: 'Deal Auto-Declined',
+          description: 'Vehicle is used for rideshare/commercial work. Deal is ineligible per policy.',
+          variant: 'destructive',
+        });
+      }
+    };
+
+    autoDecline();
+  }, [hasVehicleForWork, deal?.id, deal?.status]);
+
   if (!deal) {
     return (
       <div className="flex flex-col h-full items-center justify-center">
@@ -94,6 +124,14 @@ export default function DealDetail() {
   }
 
   const handleApprove = () => {
+    if (hasVehicleForWork) {
+      toast({
+        title: 'Approval Blocked',
+        description: 'Cannot approve — vehicle is used for rideshare/commercial work.',
+        variant: 'destructive',
+      });
+      return;
+    }
     toast({
       title: 'Deal Approved',
       description: 'The deal has been moved to funding review.',
@@ -151,7 +189,7 @@ export default function DealDetail() {
           </Button>
           <div className="flex items-center gap-3">
             <StatusBadge status={deal.status} size="lg" />
-            {deal.status !== 'funded' && deal.status !== 'declined' && (
+            {deal.status !== 'funded' && deal.status !== 'declined' && !hasVehicleForWork && (
               <>
                 <Button variant="outline" onClick={handleDecline}>
                   <XCircle className="h-4 w-4 mr-2" />
@@ -162,6 +200,11 @@ export default function DealDetail() {
                   Approve
                 </Button>
               </>
+            )}
+            {hasVehicleForWork && deal.status !== 'declined' && (
+              <span className="text-sm font-medium text-destructive">
+                Auto-declining — commercial vehicle use detected
+              </span>
             )}
           </div>
         </div>
