@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { Upload, X, FileText, Image, File, CheckCircle2 } from 'lucide-react';
+import { Upload, X, FileText, Image, File, CheckCircle2, Loader2, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Select,
@@ -12,18 +12,36 @@ import {
 import { DocumentType, DOCUMENT_TYPE_CONFIG } from '@/types/deal';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
 
 interface UploadedFile {
   file: File;
   type: DocumentType;
   preview?: string;
+  extractionStatus?: 'idle' | 'extracting' | 'done' | 'error';
 }
 
 interface DocumentUploadProps {
+  dealId?: string;
   onUpload?: (files: UploadedFile[]) => void;
 }
 
-export function DocumentUpload({ onUpload }: DocumentUploadProps) {
+const INCOME_DOC_TYPES: DocumentType[] = ['pay_stub', 'bank_statement', 'income_verification'];
+const IMAGE_MIME_TYPES = ['image/jpeg', 'image/png', 'image/jpg'];
+
+async function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      resolve(result.split(',')[1]); // strip data:...;base64, prefix
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+export function DocumentUpload({ dealId, onUpload }: DocumentUploadProps) {
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
@@ -33,6 +51,7 @@ export function DocumentUpload({ onUpload }: DocumentUploadProps) {
       preview: file.type.startsWith('image/') || file.type === 'application/pdf'
         ? URL.createObjectURL(file)
         : undefined,
+      extractionStatus: 'idle' as const,
     }));
     setUploadedFiles((prev) => [...prev, ...newFiles]);
   }, []);
@@ -62,9 +81,61 @@ export function DocumentUpload({ onUpload }: DocumentUploadProps) {
     );
   };
 
+  const triggerExtraction = async (file: File, fileIndex: number) => {
+    setUploadedFiles((prev) =>
+      prev.map((f, i) => (i === fileIndex ? { ...f, extractionStatus: 'extracting' } : f))
+    );
+
+    try {
+      const base64 = await fileToBase64(file);
+      const { data, error } = await supabase.functions.invoke('extract-income-data', {
+        body: { imageBase64: base64, mimeType: file.type },
+      });
+
+      if (error) throw error;
+
+      setUploadedFiles((prev) =>
+        prev.map((f, i) => (i === fileIndex ? { ...f, extractionStatus: 'done' } : f))
+      );
+
+      toast({
+        title: 'Income Data Extracted',
+        description: `Extracted ${data.confidence} confidence data from ${file.name}`,
+      });
+
+      // If we have a dealId, save to database
+      if (dealId && data) {
+        // Note: In production, the document_id would come from the actual document record
+        // For now we log the extracted data
+        console.log('Extracted income data:', data);
+      }
+    } catch (err) {
+      console.error('Extraction error:', err);
+      setUploadedFiles((prev) =>
+        prev.map((f, i) => (i === fileIndex ? { ...f, extractionStatus: 'error' } : f))
+      );
+      toast({
+        title: 'Extraction Failed',
+        description: `Could not extract income data from ${file.name}`,
+        variant: 'destructive',
+      });
+    }
+  };
+
   const handleSubmit = () => {
     if (uploadedFiles.length === 0) return;
     onUpload?.(uploadedFiles);
+
+    // Auto-trigger extraction for income image documents
+    uploadedFiles.forEach((item, index) => {
+      if (
+        INCOME_DOC_TYPES.includes(item.type) &&
+        IMAGE_MIME_TYPES.includes(item.file.type)
+      ) {
+        triggerExtraction(item.file, index);
+      }
+    });
+
     toast({
       title: 'Documents Uploaded',
       description: `${uploadedFiles.length} document(s) uploaded successfully.`,
@@ -111,6 +182,43 @@ export function DocumentUpload({ onUpload }: DocumentUploadProps) {
         <p className="text-xs text-muted-foreground mt-2">No preview available</p>
       </div>
     );
+  };
+
+  const renderExtractionStatus = (item: UploadedFile) => {
+    const isIncomeImage =
+      INCOME_DOC_TYPES.includes(item.type) && IMAGE_MIME_TYPES.includes(item.file.type);
+
+    if (!isIncomeImage) return null;
+
+    switch (item.extractionStatus) {
+      case 'extracting':
+        return (
+          <div className="flex items-center gap-1 text-xs text-muted-foreground px-3 pb-2">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            Extracting income data...
+          </div>
+        );
+      case 'done':
+        return (
+          <div className="flex items-center gap-1 text-xs text-success px-3 pb-2">
+            <CheckCircle2 className="h-3 w-3" />
+            Income data extracted
+          </div>
+        );
+      case 'error':
+        return (
+          <div className="flex items-center gap-1 text-xs text-warning px-3 pb-2">
+            <AlertTriangle className="h-3 w-3" />
+            Extraction failed
+          </div>
+        );
+      default:
+        return (
+          <div className="flex items-center gap-1 text-xs text-muted-foreground px-3 pb-2">
+            📸 Income data will be auto-extracted on upload
+          </div>
+        );
+    }
   };
 
   return (
@@ -186,6 +294,9 @@ export function DocumentUpload({ onUpload }: DocumentUploadProps) {
                     <X className="h-4 w-4" />
                   </Button>
                 </div>
+
+                {/* Extraction Status */}
+                {renderExtractionStatus(item)}
               </div>
             ))}
           </div>

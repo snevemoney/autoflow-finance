@@ -396,6 +396,69 @@ export type Database = {
           },
         ]
       }
+      extracted_income_data: {
+        Row: {
+          confidence: string
+          created_at: string
+          deal_id: string
+          document_id: string
+          employer_name_on_doc: string | null
+          extracted_at: string
+          gross_pay: number | null
+          id: string
+          net_pay: number | null
+          pay_date: string | null
+          pay_frequency: string | null
+          raw_extracted_text: string | null
+          ytd_gross: number | null
+        }
+        Insert: {
+          confidence?: string
+          created_at?: string
+          deal_id: string
+          document_id: string
+          employer_name_on_doc?: string | null
+          extracted_at?: string
+          gross_pay?: number | null
+          id?: string
+          net_pay?: number | null
+          pay_date?: string | null
+          pay_frequency?: string | null
+          raw_extracted_text?: string | null
+          ytd_gross?: number | null
+        }
+        Update: {
+          confidence?: string
+          created_at?: string
+          deal_id?: string
+          document_id?: string
+          employer_name_on_doc?: string | null
+          extracted_at?: string
+          gross_pay?: number | null
+          id?: string
+          net_pay?: number | null
+          pay_date?: string | null
+          pay_frequency?: string | null
+          raw_extracted_text?: string | null
+          ytd_gross?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "extracted_income_data_deal_id_fkey"
+            columns: ["deal_id"]
+            isOneToOne: false
+            referencedRelation: "deals"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "extracted_income_data_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: true
+            referencedRelation: "documents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       notifications: {
         Row: {
           created_at: string
