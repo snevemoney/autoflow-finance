@@ -1,122 +1,135 @@
 
 
-# Multi-Source Income Verification System
+# Income Calculation Methods: Manual Calculator + AI-Assisted with Tips Support
 
 ## Overview
 
-Replace the single-income model with a system that tracks multiple income sources per applicant -- each with its own type, calculation formula, document requirements, and fraud flags. This ensures a salaried job's income isn't mixed with a seasonal gig or a contractor's 1099 work, and gives analysts clear visibility into how each source was verified.
+Add a dual-mode income calculation system per income source -- analysts can either manually calculate MI/YTD using formulas, or let AI extract and compute from documents. The system supports tip adjustments (MI+10 at 10%, MI+20 at 20%, capped there) and automatically flags deals for review when missed work days are detected, triggering a request for 3 months of bank statements (or 12 months for businesses).
 
-## Income Types and Calculation Logic
+## How It Works
 
-| Type | How Monthly Income Is Calculated | Required Documents |
-|---|---|---|
-| **Salaried (W-2)** | Gross pay from stub, or annual salary / 12 | 2 recent pay stubs, W-2 |
-| **Part-Time / Hourly** | Average hours x rate across submitted stubs | 2-3 pay stubs |
-| **Self-Employed / Business Owner** | Net business income from tax returns / 12 | 2 years tax returns, P&L statement |
-| **Contractor (1099)** | Average of 1099 amounts / 12, or bank deposit average | 1099s, 6 months bank statements |
-| **Seasonal** | Annual earnings from tax return / 12 (annualized) | Tax returns, employment letter |
-| **Education / School Employee** | Contract amount / contract months (e.g., 10-month pay spread over 12) | Employment contract, pay stubs |
+### Calculation Modes (per income source)
+
+| Mode | Description |
+|---|---|
+| **MI (Monthly Income)** | Standard: use gross pay from stubs to derive monthly income |
+| **YTD (Year-to-Date)** | Divide YTD gross by the number of months elapsed in the year |
+| **MI+10** | Monthly income + 10% tip adjustment |
+| **MI+20** | Monthly income + 20% tip adjustment (maximum allowed) |
+| **AI Auto** | Let the AI extraction engine determine the best calculation |
+| **Manual Override** | Analyst enters a custom calculated amount with a reason |
+
+### Tip Logic
+- MI+10: `calculated_monthly * 1.10`
+- MI+20: `calculated_monthly * 1.20`
+- No higher percentages allowed -- UI enforces max of 20%
+
+### YTD Calculation
+- `ytd_gross / months_elapsed_in_year`
+- If pay stubs show a recent start date, use actual months worked instead of calendar months
+- Useful when MI varies month-to-month (seasonal bonuses, overtime fluctuations)
+
+### Missed Work Day Detection
+- Compare expected pay periods to actual stubs submitted
+- If gaps are found (e.g., 2 stubs in 3 months), flag the source as "Possible missed work days"
+- When flagged:
+  - **Individuals**: Request last 3 months bank statements
+  - **Businesses (self-employed)**: Request full 12 months bank statements
+- The flag triggers a `needs_review` status with a document request note
 
 ## Database Changes
 
-### New enum: `income_source_type`
-Values: `salaried`, `part_time`, `self_employed`, `contractor`, `seasonal`, `education`
+### Alter `income_sources` table -- add columns:
 
-### New enum: `income_verification_status`
-Values: `unverified`, `verified`, `flagged`, `insufficient_docs`
+| Column | Type | Default | Purpose |
+|---|---|---|---|
+| `calc_method` | text | `'mi'` | Which formula: `mi`, `ytd`, `mi_plus_10`, `mi_plus_20`, `manual` |
+| `tip_percentage` | integer | `null` | 10 or 20 if tips apply, null otherwise |
+| `ytd_gross` | numeric | `null` | Year-to-date gross from stubs/extractions |
+| `ytd_months` | integer | `null` | Number of months the YTD covers |
+| `manual_override_amount` | numeric | `null` | Analyst-entered override value |
+| `manual_override_reason` | text | `null` | Why the override was used |
+| `missed_days_flag` | boolean | `false` | Whether missed work days were detected |
+| `additional_docs_requested` | text[] | `'{}'` | List of additional docs requested (e.g., "3 months bank statements") |
 
-### New table: `income_sources`
+### Add `needs_review` to `income_verification_status` enum
+New value alongside existing `unverified`, `verified`, `flagged`, `insufficient_docs`.
 
-| Column | Type | Notes |
-|---|---|---|
-| id | uuid | Primary key |
-| deal_id | uuid | Links to deals table |
-| customer_id | uuid | Links to customers table |
-| source_type | income_source_type | Which calculation formula to use |
-| employer_name | text | Employer or business name |
-| job_title | text | Nullable |
-| stated_monthly_income | numeric | What applicant claims |
-| calculated_monthly_income | numeric | What documents support (nullable until verified) |
-| pay_frequency | text | weekly, biweekly, semimonthly, monthly, annual, contract |
-| contract_months | integer | For education workers (e.g., 10) |
-| hours_per_week | numeric | For part-time/hourly |
-| hourly_rate | numeric | For part-time/hourly |
-| is_primary | boolean | Default true for first source |
-| verification_status | income_verification_status | Default unverified |
-| flag_reasons | text[] | Array of fraud flag strings |
-| verified_at | timestamptz | Nullable |
-| verified_by | uuid | Nullable |
-| created_at, updated_at | timestamptz | Standard timestamps |
+## New Component: `IncomeCalculator.tsx`
 
-RLS: Authenticated users can SELECT, INSERT, UPDATE. Admins can DELETE.
+A calculator panel embedded inside each `IncomeSourceCard` that lets analysts:
 
-## Fraud Detection Flags (Per Source)
+1. **Select calculation method** via radio/toggle buttons: MI | YTD | MI+10 | MI+20 | Manual
+2. **See live computed result** based on the selected method and available data
+3. **YTD inputs**: YTD gross amount and number of months -- auto-filled from OCR if available
+4. **Tip adjustment**: Automatically applies 10% or 20% to the base MI
+5. **Manual override**: Free-form amount field with required reason textarea
+6. **Apply button**: Saves the selected method and computed value to `income_sources`
+7. **Missed days alert**: If gaps detected, shows a warning banner with a button to request additional documents
 
-These checks run automatically based on the data entered and any OCR extractions:
+### Calculator Display
 
-- **Income variance > 15%**: Stated monthly income differs from calculated by more than 15%
-- **Round number suspicion**: Stated income is a suspiciously round number (e.g., exactly $5,000)
-- **Employer name mismatch**: Employer on uploaded document doesn't match what was entered
-- **Employment duration vs. docs**: Claims years of employment but documents show recent hire
-- **Multiple full-time overlap**: Two sources both marked as full-time salaried
-- **Missing documents**: Required documents for the income type haven't been uploaded
-- **Seasonal income inflated**: Seasonal worker's stated monthly exceeds annualized amount
-- **Deposit inconsistency**: Bank deposits don't align with pay stub amounts
-
-## New Components
-
-### `src/components/deals/IncomeSourceCard.tsx`
-A sub-card for each income source showing:
-- Source type badge (color-coded by type)
-- Employer name and job title
-- Stated vs. calculated income with delta percentage
-- Type-specific fields (hours/rate for hourly, contract months for education)
-- Verification status indicator
-- Warning flags if any
-
-### `src/components/deals/AddIncomeSourceDialog.tsx`
-A dialog form to add a new income source:
-- Income type selector (dropdown with 6 types)
-- Dynamic fields that change based on selected type (e.g., hours/rate for hourly, contract months for education)
-- Employer name, job title, stated monthly income
-- Saves to the `income_sources` table
+```text
++-----------------------------------------------+
+| Income Calculator               [MI] [YTD]    |
+|                          [MI+10] [MI+20] [Man] |
+|-----------------------------------------------|
+| Base MI (from stubs):          $4,200/mo       |
+| YTD Gross:            $25,200 / 6 mo = $4,200 |
+| Tip Adjustment:                     +10% = $420|
+|-----------------------------------------------|
+| >> Calculated Total:           $4,620/mo  <<   |
+|                                                |
+| [!] Possible missed work days detected         |
+|     Request: 3 months bank statements          |
+|                                  [Request Docs]|
+|                                                |
+|                           [Apply Calculation]  |
++-----------------------------------------------+
+```
 
 ## Modified Components
 
-### `src/components/deals/IncomeVerificationCard.tsx`
-Redesigned as a parent container:
-- Queries `income_sources` table for the deal
-- Lists all sources via `IncomeSourceCard` components
-- Shows **total combined monthly income** (sum of all calculated incomes) at the top
-- Shows overall payment-to-income ratio using total income
-- "Add Income Source" button opens the dialog
-- Fraud detection summary section showing all flags across sources
-- Falls back to the existing single-source view if no `income_sources` rows exist (backward compatible)
+### `IncomeSourceCard.tsx`
+- Import and render `IncomeCalculator` as an expandable section (like Analyst Actions)
+- Display the active calc method as a small badge (e.g., "MI+10" badge next to calculated income)
+- Show missed days warning icon if `missed_days_flag` is true
 
-### `src/components/deals/DealSummaryCard.tsx`
-Update the `computeRisk` function:
-- Use total income from `income_sources` when available instead of single `employmentInfo.monthlyIncome`
-- Add risk score points for unverified income sources and total flag count
+### `IncomeSourceActions.tsx`
+- Add `needs_review` to the status dropdown options
+- When status is set to `needs_review`, auto-populate a note about required additional documents
 
-### `src/types/deal.ts`
-Add `IncomeSource` interface and `IncomeSourceType` type for frontend use.
+### `IncomeVerificationCard.tsx`
+- When computing totals, use the tip-adjusted or YTD-derived amounts (whatever `calc_method` dictates)
+- Show a summary badge if any source has missed days flagged
+- Add a "Review Required" banner at the top if any source is in `needs_review` status
+
+### `AddIncomeSourceDialog.tsx`
+- Add initial calc method selector (default MI)
+- For tip-eligible types (salaried, part_time), show tip percentage toggle (0%, 10%, 20%)
+
+### `extract-income-data` Edge Function
+- Already extracts `ytd_gross` -- no changes needed to the AI prompt
+- The extracted YTD value will auto-populate the calculator's YTD field
 
 ## Files Summary
 
 | Action | File |
 |---|---|
-| Create | Database migration (enums + `income_sources` table) |
-| Create | `src/components/deals/IncomeSourceCard.tsx` |
-| Create | `src/components/deals/AddIncomeSourceDialog.tsx` |
+| Create | Database migration (new columns + enum value) |
+| Create | `src/components/deals/IncomeCalculator.tsx` |
+| Modify | `src/components/deals/IncomeSourceCard.tsx` |
+| Modify | `src/components/deals/IncomeSourceActions.tsx` |
 | Modify | `src/components/deals/IncomeVerificationCard.tsx` |
-| Modify | `src/components/deals/DealSummaryCard.tsx` |
+| Modify | `src/components/deals/AddIncomeSourceDialog.tsx` |
 | Modify | `src/types/deal.ts` |
 
-## Technical Notes
+## Business Rules Enforced
 
-- Income calculation is deterministic and rule-based (not AI) -- keeps it fast and auditable
-- Each income source is independently verifiable so analysts can approve sources one at a time
-- The OCR extraction system (already built) feeds into this: when a document is extracted, it can be linked to a specific income source for cross-checking
-- Backward compatible: deals without `income_sources` rows still work using the existing `employmentInfo` data
-- The `is_primary` flag determines which source displays first and is used as the main reference
+1. Tip percentage maxes at 20% -- UI prevents higher values
+2. YTD method requires at least 1 month elapsed to avoid division errors
+3. Manual override always requires a written reason (audit trail)
+4. Missed work day flag automatically triggers `needs_review` status
+5. Document requests differ by source type: 3 months bank statements for individuals, 12 months for businesses
+6. AI-extracted YTD values auto-populate but can be overridden manually
 
