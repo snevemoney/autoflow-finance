@@ -17,6 +17,9 @@ import {
 import { mockNotifications } from '@/data/mockData';
 import { cn } from '@/lib/utils';
 import { formatDistanceToNow } from 'date-fns';
+import { useAuth } from '@/contexts/AuthContext';
+import { useEffect, useState } from 'react';
+import { supabase } from '@/integrations/supabase/client';
 
 interface AppHeaderProps {
   title: string;
@@ -25,6 +28,22 @@ interface AppHeaderProps {
 
 export function AppHeader({ title, subtitle }: AppHeaderProps) {
   const unreadCount = mockNotifications.filter((n) => !n.read).length;
+  const { user, signOut } = useAuth();
+  const [profileName, setProfileName] = useState<string>('');
+
+  useEffect(() => {
+    if (!user) return;
+    supabase
+      .from('profiles')
+      .select('name')
+      .eq('user_id', user.id)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data?.name) setProfileName(data.name);
+      });
+  }, [user]);
+
+  const displayName = profileName || user?.email || 'User';
 
   return (
     <header className="flex h-16 items-center justify-between border-b bg-card px-6">
@@ -119,8 +138,8 @@ export function AppHeader({ title, subtitle }: AppHeaderProps) {
           <DropdownMenuContent align="end" className="w-56">
             <DropdownMenuLabel>
               <div>
-                <p className="font-medium">Alex Morgan</p>
-                <p className="text-xs text-muted-foreground">admin@autofinance.com</p>
+                <p className="font-medium">{displayName}</p>
+                <p className="text-xs text-muted-foreground">{user?.email}</p>
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
@@ -133,7 +152,7 @@ export function AppHeader({ title, subtitle }: AppHeaderProps) {
               Settings
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem className="text-destructive">
+            <DropdownMenuItem className="text-destructive" onClick={signOut}>
               <LogOut className="mr-2 h-4 w-4" />
               Log out
             </DropdownMenuItem>
