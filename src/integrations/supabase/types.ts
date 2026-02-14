@@ -406,6 +406,7 @@ export type Database = {
           extracted_at: string
           gross_pay: number | null
           id: string
+          income_source_id: string | null
           net_pay: number | null
           pay_date: string | null
           pay_frequency: string | null
@@ -421,6 +422,7 @@ export type Database = {
           extracted_at?: string
           gross_pay?: number | null
           id?: string
+          income_source_id?: string | null
           net_pay?: number | null
           pay_date?: string | null
           pay_frequency?: string | null
@@ -436,6 +438,7 @@ export type Database = {
           extracted_at?: string
           gross_pay?: number | null
           id?: string
+          income_source_id?: string | null
           net_pay?: number | null
           pay_date?: string | null
           pay_frequency?: string | null
@@ -455,6 +458,13 @@ export type Database = {
             columns: ["document_id"]
             isOneToOne: true
             referencedRelation: "documents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "extracted_income_data_income_source_id_fkey"
+            columns: ["income_source_id"]
+            isOneToOne: false
+            referencedRelation: "income_sources"
             referencedColumns: ["id"]
           },
         ]
