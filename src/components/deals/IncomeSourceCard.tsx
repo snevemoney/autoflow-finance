@@ -37,6 +37,7 @@ export interface IncomeSource {
   manual_override_reason: string | null;
   missed_days_flag: boolean;
   additional_docs_requested: string[];
+  vehicle_for_work: boolean;
 }
 
 export interface LinkedExtraction {
