@@ -1,6 +1,6 @@
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
-import { AlertTriangle, CheckCircle2, Clock, FileWarning, Briefcase, GraduationCap, Hammer, Wrench, Leaf, Timer, UserX, Heart, Shield } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Clock, FileWarning, Briefcase, GraduationCap, Hammer, Wrench, Leaf, Timer, UserX, Heart, Shield, FileSearch } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export type IncomeSourceType = 'salaried' | 'part_time' | 'self_employed' | 'contractor' | 'seasonal' | 'education' | 'unemployed' | 'pension' | 'government_assistance';
@@ -28,6 +28,16 @@ export interface IncomeSource {
   updated_at: string;
 }
 
+export interface LinkedExtraction {
+  id: string;
+  gross_pay: number | null;
+  net_pay: number | null;
+  pay_frequency: string | null;
+  employer_name_on_doc: string | null;
+  confidence: string;
+  extracted_at: string;
+}
+
 const SOURCE_TYPE_CONFIG: Record<IncomeSourceType, { label: string; icon: typeof Briefcase; color: string }> = {
   salaried: { label: 'Salaried (W-2)', icon: Briefcase, color: 'bg-primary/10 text-primary border-primary/30' },
   part_time: { label: 'Part-Time / Hourly', icon: Timer, color: 'bg-info/10 text-info border-info/30' },
@@ -49,9 +59,10 @@ const STATUS_CONFIG: Record<IncomeVerificationStatus, { label: string; icon: typ
 
 interface IncomeSourceCardProps {
   source: IncomeSource;
+  linkedExtractions?: LinkedExtraction[];
 }
 
-export function IncomeSourceCard({ source }: IncomeSourceCardProps) {
+export function IncomeSourceCard({ source, linkedExtractions }: IncomeSourceCardProps) {
   const typeConfig = SOURCE_TYPE_CONFIG[source.source_type];
   const statusConfig = STATUS_CONFIG[source.verification_status];
   const TypeIcon = typeConfig.icon;
@@ -62,6 +73,8 @@ export function IncomeSourceCard({ source }: IncomeSourceCardProps) {
   const delta = calculated != null && stated > 0
     ? (((calculated - stated) / stated) * 100).toFixed(1)
     : null;
+
+  const hasExtractions = linkedExtractions && linkedExtractions.length > 0;
 
   return (
     <Card className="border-l-4" style={{ borderLeftColor: 'hsl(var(--primary))' }}>
@@ -107,6 +120,17 @@ export function IncomeSourceCard({ source }: IncomeSourceCardProps) {
           <p className={cn('text-xs', parseFloat(delta) >= 0 ? 'text-success' : 'text-warning')}>
             {parseFloat(delta) > 0 ? '+' : ''}{delta}% variance
           </p>
+        )}
+
+        {/* Extraction source info */}
+        {hasExtractions && (
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted/50 rounded px-2 py-1.5">
+            <FileSearch className="h-3 w-3 shrink-0 text-success" />
+            <span>
+              Calculated from {linkedExtractions.length} extracted document{linkedExtractions.length !== 1 ? 's' : ''}
+              {' '}({linkedExtractions[0].confidence} confidence)
+            </span>
+          </div>
         )}
 
         {/* Type-specific fields */}

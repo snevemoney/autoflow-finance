@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { DollarSign, TrendingUp, TrendingDown, Briefcase, AlertTriangle, FileSearch, Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -25,6 +25,7 @@ interface ExtractedIncome {
   ytd_gross: number | null;
   confidence: string;
   extracted_at: string;
+  income_source_id: string | null;
 }
 
 function calcMonthlyFromExtraction(grossPay: number, frequency: string): number {
@@ -37,8 +38,23 @@ function calcMonthlyFromExtraction(grossPay: number, frequency: string): number 
   }
 }
 
+/** Try to match an extraction to an income source by employer name similarity */
+function findMatchingSource(extraction: ExtractedIncome, sources: IncomeSource[]): IncomeSource | null {
+  if (!extraction.employer_name_on_doc) return null;
+  const docEmp = extraction.employer_name_on_doc.toLowerCase().trim();
+  
+  for (const source of sources) {
+    const srcEmp = source.employer_name.toLowerCase().trim();
+    if (docEmp.includes(srcEmp) || srcEmp.includes(docEmp)) {
+      return source;
+    }
+  }
+  return null;
+}
+
 export function IncomeVerificationCard({ deal }: IncomeVerificationCardProps) {
   const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const matchedRef = useRef<Set<string>>(new Set());
 
   // Query income sources
   const { data: incomeSources, refetch: refetchSources } = useQuery({
@@ -67,6 +83,70 @@ export function IncomeVerificationCard({ deal }: IncomeVerificationCardProps) {
     },
   });
 
+  // Auto-match unlinked extractions to income sources and update calculated income
+  useEffect(() => {
+    if (!extractions || !incomeSources || incomeSources.length === 0) return;
+
+    const unlinked = extractions.filter(
+      e => !e.income_source_id && e.gross_pay != null && e.pay_frequency && !matchedRef.current.has(e.id)
+    );
+
+    for (const extraction of unlinked) {
+      const match = findMatchingSource(extraction, incomeSources);
+      if (!match) continue;
+
+      matchedRef.current.add(extraction.id);
+      const calculatedMonthly = calcMonthlyFromExtraction(extraction.gross_pay!, extraction.pay_frequency!);
+
+      // Link extraction to income source
+      supabase.from('extracted_income_data')
+        .update({ income_source_id: match.id })
+        .eq('id', extraction.id)
+        .then(() => {});
+
+      // Update income source calculated income + fraud flags
+      const flags = [...(match.flag_reasons || [])];
+      const variance = match.stated_monthly_income > 0
+        ? Math.abs((calculatedMonthly - match.stated_monthly_income) / match.stated_monthly_income) * 100
+        : 0;
+      if (variance > 15 && !flags.includes('Income variance > 15%')) {
+        flags.push('Income variance > 15%');
+      }
+      if (extraction.employer_name_on_doc) {
+        const docEmp = extraction.employer_name_on_doc.toLowerCase().trim();
+        const srcEmp = match.employer_name.toLowerCase().trim();
+        if (!docEmp.includes(srcEmp) && !srcEmp.includes(docEmp) && !flags.includes('Employer name mismatch')) {
+          flags.push('Employer name mismatch');
+        }
+      }
+      if (extraction.pay_date) {
+        const days = (Date.now() - new Date(extraction.pay_date).getTime()) / (1000 * 60 * 60 * 24);
+        if (days > 60 && !flags.includes('Document > 60 days old')) {
+          flags.push('Document > 60 days old');
+        }
+      }
+
+      supabase.from('income_sources')
+        .update({
+          calculated_monthly_income: calculatedMonthly,
+          flag_reasons: flags,
+        })
+        .eq('id', match.id)
+        .then(() => refetchSources());
+    }
+  }, [extractions, incomeSources]);
+
+  // Build a map of income_source_id → extractions for display
+  const extractionsBySource: Record<string, ExtractedIncome[]> = {};
+  if (extractions) {
+    for (const e of extractions) {
+      if (e.income_source_id) {
+        if (!extractionsBySource[e.income_source_id]) extractionsBySource[e.income_source_id] = [];
+        extractionsBySource[e.income_source_id].push(e);
+      }
+    }
+  }
+
   const hasMultiSource = incomeSources && incomeSources.length > 0;
 
   // --- Multi-source view ---
@@ -78,11 +158,14 @@ export function IncomeVerificationCard({ deal }: IncomeVerificationCardProps) {
     const ptiHealthy = typeof pti === 'string' ? false : parseFloat(pti) <= 20;
 
     const allFlags = incomeSources.flatMap(s => s.flag_reasons);
-    // Check for multiple full-time overlap
     const fullTimeCount = incomeSources.filter(s => s.source_type === 'salaried').length;
     if (fullTimeCount > 1 && !allFlags.includes('Multiple full-time overlap')) {
       allFlags.push('Multiple full-time overlap');
     }
+
+    // Count linked extractions
+    const linkedCount = extractions?.filter(e => e.income_source_id).length ?? 0;
+    const unlinkedCount = extractions?.filter(e => !e.income_source_id && e.gross_pay != null).length ?? 0;
 
     return (
       <Card>
@@ -123,11 +206,32 @@ export function IncomeVerificationCard({ deal }: IncomeVerificationCardProps) {
             </div>
           </div>
 
+          {/* OCR linkage summary */}
+          {(linkedCount > 0 || unlinkedCount > 0) && (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <FileSearch className="h-3 w-3" />
+              {linkedCount > 0 && (
+                <Badge variant="outline" className="text-xs text-success border-success/30">
+                  {linkedCount} extraction{linkedCount !== 1 ? 's' : ''} linked
+                </Badge>
+              )}
+              {unlinkedCount > 0 && (
+                <Badge variant="outline" className="text-xs text-warning border-warning/30">
+                  {unlinkedCount} unmatched
+                </Badge>
+              )}
+            </div>
+          )}
+
           {/* Source cards */}
           <div className="space-y-3">
             <p className="text-xs font-medium text-muted-foreground">{incomeSources.length} Income Source{incomeSources.length !== 1 ? 's' : ''}</p>
             {incomeSources.map(src => (
-              <IncomeSourceCard key={src.id} source={src} />
+              <IncomeSourceCard
+                key={src.id}
+                source={src}
+                linkedExtractions={extractionsBySource[src.id]}
+              />
             ))}
           </div>
 
