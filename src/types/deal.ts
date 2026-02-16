@@ -224,7 +224,7 @@ export const DOCUMENT_TYPE_CONFIG: Record<DocumentType, { label: string; icon: s
 // Multi-source income types
 export type IncomeSourceType = 'salaried' | 'part_time' | 'self_employed' | 'contractor' | 'seasonal' | 'education' | 'unemployed' | 'pension' | 'government_assistance';
 export type IncomeVerificationStatus = 'unverified' | 'verified' | 'flagged' | 'insufficient_docs' | 'needs_review';
-export type CalcMethod = 'mi' | 'ytd' | 'mi_plus_10' | 'mi_plus_20' | 'manual';
+export type CalcMethod = 'mi' | 'ytd' | 'mi_plus_10' | 'mi_plus_20' | 'manual' | 'lower_of';
 
 export interface IncomeSource {
   id: string;
