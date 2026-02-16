@@ -605,6 +605,65 @@ export function IncomeCalculator({
         </div>
       )}
 
+      {/* MI vs YTD cross-check */}
+      {(() => {
+        // Compute MI value regardless of current method
+        let miValue: number | null = null;
+        if (miInputMode === 'salary') {
+          const gpp = parseFloat(grossPerPeriod);
+          if (gpp > 0) miValue = Math.round(gpp * FREQUENCY_MULTIPLIERS[payFrequency]);
+        } else {
+          const rate = parseFloat(hourlyRate);
+          const hrs = parseFloat(hoursPerWeek);
+          if (rate > 0 && hrs > 0) miValue = Math.round(rate * hrs * 4.33);
+        }
+        // Compute YTD value regardless of current method
+        const ytdG = parseFloat(ytdGross);
+        const ytdM = parseInt(ytdMonths);
+        const ytdValue = ytdG > 0 && ytdM >= 1 ? Math.round(ytdG / ytdM) : null;
+
+        if (miValue != null && ytdValue != null) {
+          const avg = (miValue + ytdValue) / 2;
+          const diff = Math.abs(miValue - ytdValue);
+          const pct = avg > 0 ? Math.round((diff / avg) * 100) : 0;
+          const isOk = pct <= 10;
+          const isWarn = pct > 10 && pct <= 20;
+          // pct > 20 = error
+
+          return (
+            <div className={cn(
+              'p-2.5 rounded-md border space-y-1.5',
+              isOk ? 'bg-success/5 border-success/20' : isWarn ? 'bg-warning/10 border-warning/30' : 'bg-destructive/5 border-destructive/20'
+            )}>
+              <div className="flex items-center justify-between text-xs font-medium">
+                <span className={isOk ? 'text-success' : isWarn ? 'text-warning' : 'text-destructive'}>
+                  {isOk ? '✓' : '⚠️'} MI vs YTD Cross-Check
+                </span>
+                <span className={cn('font-mono', isOk ? 'text-success' : isWarn ? 'text-warning' : 'text-destructive')}>
+                  {pct}% gap
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="text-muted-foreground">
+                  MI: <span className="font-medium text-foreground">${miValue.toLocaleString()}/mo</span>
+                </div>
+                <div className="text-muted-foreground">
+                  YTD: <span className="font-medium text-foreground">${ytdValue.toLocaleString()}/mo</span>
+                </div>
+              </div>
+              {!isOk && (
+                <p className="text-xs text-muted-foreground">
+                  {isWarn
+                    ? 'Moderate gap — verify pay stub period matches YTD date range. Check for overtime, bonuses, or recent pay changes.'
+                    : 'Large gap — investigate: possible missed pay periods, recent hire, seasonal hours, or incorrect YTD months. Request additional stubs or bank statements to reconcile.'}
+                </p>
+              )}
+            </div>
+          );
+        }
+        return null;
+      })()}
+
       {/* Computed result */}
       {computedResult != null && (
         <div className="p-2.5 rounded-md bg-primary/5 border border-primary/20 text-center">
