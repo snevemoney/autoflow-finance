@@ -11,7 +11,7 @@ import { ApplicantDebtsCard } from '@/components/deals/ApplicantDebtsCard';
 import { ExtractedDataBadge, type ExtractedData } from '@/components/deals/ExtractedDataBadge';
 import type { IncomeSource } from '@/components/deals/IncomeSourceCard';
 import type { ApplicantDebt } from '@/components/deals/ApplicantDebtsCard';
-import { getDealById } from '@/data/mockData';
+import { useDeal } from '@/hooks/use-deals';
 import { supabase } from '@/integrations/supabase/client';
 import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
@@ -39,6 +39,7 @@ import {
   CheckCircle2,
   XCircle,
   AlertCircle,
+  Loader2,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
@@ -48,7 +49,7 @@ import { toast } from '@/hooks/use-toast';
 export default function DealDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const deal = getDealById(id!);
+  const { data: deal, isLoading } = useDeal(id);
   const [note, setNote] = useState('');
   const [viewerDoc, setViewerDoc] = useState<{ name: string; fileUrl: string; type: string } | null>(null);
 
@@ -130,6 +131,15 @@ export default function DealDetail() {
 
     autoDecline();
   }, [hasVehicleForWork, deal?.id, deal?.status]);
+
+  if (isLoading) {
+    return (
+      <div className="flex flex-col h-full items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        <p className="mt-2 text-sm text-muted-foreground">Loading deal...</p>
+      </div>
+    );
+  }
 
   if (!deal) {
     return (
