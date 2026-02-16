@@ -1,82 +1,57 @@
 
 
-## Add Applicant Debts (Garnishments and Other Obligations)
+## Add Debt Flags to Credit Queue
 
-This feature adds tracking of garnishments, child support, and other debt obligations to the deal, displayed on both the income verification and credit review sections. This gives analysts a complete picture of the applicant's financial obligations.
-
----
-
-### What Gets Built
-
-1. **New `applicant_debts` database table** to store debts per deal/customer
-2. **New `ApplicantDebtsCard` component** showing all debts with add/edit/delete
-3. **Integration into the Deal Detail sidebar** (visible on both income and credit views)
-4. **Updated PTI (Payment-to-Income) and risk calculations** to factor in existing debts (DTI - Debt-to-Income ratio)
+Surface debt-related risk indicators (high DTI, active garnishments) directly on the CreditQueue page so analysts can prioritize deals at a glance.
 
 ---
 
-### Database
+### Changes Overview
 
-A new `applicant_debts` table:
+**1. Fetch applicant debts for all queued deals (CreditQueue.tsx)**
 
-| Column | Type | Notes |
-|--------|------|-------|
-| id | uuid (PK) | auto-generated |
-| deal_id | uuid (FK) | references deals |
-| customer_id | uuid (FK) | references customers |
-| debt_type | enum | `garnishment`, `child_support`, `auto_loan`, `student_loan`, `credit_card`, `mortgage`, `medical`, `other` |
-| creditor_name | text | e.g. "IRS", "State of TX" |
-| monthly_payment | numeric | required |
-| total_balance | numeric | nullable |
-| months_remaining | integer | nullable |
-| is_court_ordered | boolean | default false (true for garnishments/child support) |
-| notes | text | nullable |
-| created_at | timestamptz | default now() |
-| created_by | uuid | nullable, references auth.users |
+- Query the `applicant_debts` table for all deal IDs in the credit queue using a single batch query
+- Aggregate per-deal: total monthly debt obligations, garnishment count, court-ordered count
+- Compute DTI per deal: `(monthlyPayment + totalDebts) / monthlyIncome * 100`
 
-RLS policies: authenticated users can view, insert, and update; admins can delete.
+**2. Pass debt summary to DealCard (DealCard.tsx)**
 
----
+- Add an optional `debtSummary` prop: `{ totalMonthlyDebts: number; hasGarnishments: boolean; dti: number | null }`
+- Render new badges between the credit score and flags sections:
+  - **High DTI badge** (red) when DTI > 45%: shows "DTI: XX%"
+  - **Garnishment badge** (orange) with gavel icon: shows "Garnishment"
+- These appear as small pills similar to the existing flag badges
 
-### New Component: `ApplicantDebtsCard`
+**3. Add queue-level stats (CreditQueue.tsx)**
 
-A card component placed in the Deal Detail sidebar (between Income Verification and Credit Info cards) that:
-
-- Queries `applicant_debts` for the deal
-- Shows a summary: total monthly obligations, number of debts, any court-ordered items
-- Lists each debt with type badge, creditor, monthly payment
-- "Add Debt" button opens an inline form with fields for type, creditor, monthly payment, balance, court-ordered toggle
-- Inline delete for individual debts
-
----
-
-### Updated Calculations
-
-**IncomeVerificationCard**: The PTI section will show an enhanced "DTI" (Debt-to-Income) ratio that includes:
-- Proposed car payment + total existing monthly debts / total income
-
-**DealSummaryCard**: The risk computation will factor in total debt obligations:
-- DTI > 45% adds risk score + concern
-- Any garnishments add risk score + concern
-- Court-ordered debts flagged as concern
-
-**CreditQueue stats**: Add a new stat showing average DTI across queued deals.
+- Replace the 4-column stat grid with a 5-column grid (or keep 4 and swap one)
+- Add a new stat card: "High DTI Deals" showing count of deals with DTI > 45%
+- Add sort option: "Highest DTI" to let analysts prioritize risky deals
 
 ---
 
 ### Technical Details
 
-**Files to create:**
-- `src/components/deals/ApplicantDebtsCard.tsx` -- main card with list, add form, and summary
-
 **Files to modify:**
-- `src/pages/DealDetail.tsx` -- add `ApplicantDebtsCard` to the sidebar
-- `src/components/deals/IncomeVerificationCard.tsx` -- show combined DTI (car payment + debts / income)
-- `src/components/deals/DealSummaryCard.tsx` -- factor debts into risk score
-- `src/pages/CreditQueue.tsx` -- optionally surface debt flags on deal cards
-- `src/types/deal.ts` -- add debt type definitions
 
-**Database migration:**
-- Create `applicant_debts` table with RLS policies
-- Create `debt_type` enum
+- `src/pages/CreditQueue.tsx` -- fetch debts, compute DTI per deal, pass to DealCard, add stats and sort option
+- `src/components/deals/DealCard.tsx` -- accept optional `debtSummary` prop, render DTI and garnishment badges
+
+**Data flow:**
+
+1. CreditQueue fetches deals (existing mock data) and debts from Supabase
+2. Groups debts by `deal_id` into a `Map<string, DebtSummary>`
+3. For each deal, computes DTI using `deal.customer.employmentInfo.monthlyIncome` and `deal.financingTerms.monthlyPayment`
+4. Passes the summary object to each `DealCard`
+
+**DealCard badge rendering (new section after credit score):**
+
+```
+{debtSummary?.dti != null && debtSummary.dti > 45 && (
+  <badge variant="destructive">DTI: {dti}%</badge>
+)}
+{debtSummary?.hasGarnishments && (
+  <badge variant="warning"><Gavel /> Garnishment</badge>
+)}
+```
 
