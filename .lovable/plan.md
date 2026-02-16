@@ -1,32 +1,59 @@
 
 
-## Add Debt Flags to Credit Queue
+## Add Housing & Financial Details to Credit Queue Cards
 
-Surface debt-related risk indicators (high DTI, active garnishments) directly on the CreditQueue page so analysts can prioritize deals at a glance.
+Enrich the Credit Queue deal cards with more financial context so analysts can quickly assess an applicant's full picture -- rent/housing costs, employment tenure, monthly payment vs income ratio (PTI), and a debt breakdown by type.
 
 ---
 
 ### Changes Overview
 
-**1. Fetch applicant debts for all queued deals (CreditQueue.tsx)**
+**1. Add `rent` as a new debt type (database migration)**
 
-- Query the `applicant_debts` table for all deal IDs in the credit queue using a single batch query
-- Aggregate per-deal: total monthly debt obligations, garnishment count, court-ordered count
-- Compute DTI per deal: `(monthlyPayment + totalDebts) / monthlyIncome * 100`
+- Add `'rent'` to the existing `debt_type` enum so analysts can record housing costs alongside other obligations
+- This lets rent appear naturally in the applicant debts system and on the card
 
-**2. Pass debt summary to DealCard (DealCard.tsx)**
+**2. Expand `DebtSummary` with richer data (DealCard.tsx)**
 
-- Add an optional `debtSummary` prop: `{ totalMonthlyDebts: number; hasGarnishments: boolean; dti: number | null }`
-- Render new badges between the credit score and flags sections:
-  - **High DTI badge** (red) when DTI > 45%: shows "DTI: XX%"
-  - **Garnishment badge** (orange) with gavel icon: shows "Garnishment"
-- These appear as small pills similar to the existing flag badges
+- Add fields: `rentPayment`, `debtBreakdown` (map of type to total), `debtCount`
+- Show a compact financial snapshot section on each card:
+  - Monthly payment + PTI ratio (payment-to-income %)
+  - Rent/housing cost (if recorded)
+  - Employment tenure (years employed)
+  - Number of debt obligations with icons for key types (auto, credit card, etc.)
 
-**3. Add queue-level stats (CreditQueue.tsx)**
+**3. Enrich CreditQueue aggregation (CreditQueue.tsx)**
 
-- Replace the 4-column stat grid with a 5-column grid (or keep 4 and swap one)
-- Add a new stat card: "High DTI Deals" showing count of deals with DTI > 45%
-- Add sort option: "Highest DTI" to let analysts prioritize risky deals
+- When fetching `applicant_debts`, also extract rent amounts and build a per-type breakdown
+- Pass the enriched summary to each DealCard
+
+**4. Update ApplicantDebtsCard (ApplicantDebtsCard.tsx)**
+
+- Add `'rent'` to the `DEBT_TYPE_LABELS` and `DEBT_TYPE_COLORS` maps so it can be selected in the add-debt form
+
+---
+
+### What the card will show (new section between credit score and flags)
+
+```text
++------------------------------------------+
+| AF-2026-00001          Credit Review      |
+| John Doe                                  |
+| 2024 Toyota Camry                         |
+| $28,500 @ 6.9% / 72mo                    |
+| 720 (prime)                               |
+|                                           |
+| Monthly Payment  $485    PTI: 12%         |
+| Rent/Housing     $1,200                   |
+| Employment       3.5 yrs at Acme Corp    |
+| Debts            4 obligations  $780/mo   |
+|   [Auto] [Credit Card] [Garnishment]      |
+| DTI: 52%                                  |
+|                                           |
+| [!] High LTV                              |
+| 3 docs  Premier   2 hours ago             |
++------------------------------------------+
+```
 
 ---
 
@@ -34,24 +61,28 @@ Surface debt-related risk indicators (high DTI, active garnishments) directly on
 
 **Files to modify:**
 
-- `src/pages/CreditQueue.tsx` -- fetch debts, compute DTI per deal, pass to DealCard, add stats and sort option
-- `src/components/deals/DealCard.tsx` -- accept optional `debtSummary` prop, render DTI and garnishment badges
+- `supabase/migrations/` -- new migration to add `'rent'` to `debt_type` enum
+- `src/components/deals/DealCard.tsx` -- expand `DebtSummary` interface, add financial snapshot section with PTI, rent, employment, and debt breakdown
+- `src/pages/CreditQueue.tsx` -- enrich debt aggregation to include rent amount, debt count, and per-type breakdown; also fetch employment data from the deal's customer object
+- `src/components/deals/ApplicantDebtsCard.tsx` -- add `rent` to `DEBT_TYPE_LABELS` and `DEBT_TYPE_COLORS`
 
-**Data flow:**
+**Updated DebtSummary interface:**
 
-1. CreditQueue fetches deals (existing mock data) and debts from Supabase
-2. Groups debts by `deal_id` into a `Map<string, DebtSummary>`
-3. For each deal, computes DTI using `deal.customer.employmentInfo.monthlyIncome` and `deal.financingTerms.monthlyPayment`
-4. Passes the summary object to each `DealCard`
-
-**DealCard badge rendering (new section after credit score):**
-
+```typescript
+export interface DebtSummary {
+  totalMonthlyDebts: number;
+  hasGarnishments: boolean;
+  dti: number | null;
+  rentPayment: number;
+  debtCount: number;
+  debtTypes: string[]; // unique types present
+}
 ```
-{debtSummary?.dti != null && debtSummary.dti > 45 && (
-  <badge variant="destructive">DTI: {dti}%</badge>
-)}
-{debtSummary?.hasGarnishments && (
-  <badge variant="warning"><Gavel /> Garnishment</badge>
-)}
-```
+
+**New card section rendering:**
+
+- PTI = `(monthlyPayment / monthlyIncome) * 100` -- shown in green/yellow/red based on thresholds
+- Rent line only shown if rent debt exists (> 0)
+- Employment tenure and employer name pulled from `deal.customer.employmentInfo`
+- Debt type pills rendered as small colored badges (reusing existing color scheme from ApplicantDebtsCard)
 
