@@ -104,6 +104,32 @@ export function IncomeVerificationCard({ deal }: IncomeVerificationCardProps) {
     },
   });
 
+  // Auto-create income source from deal employment info when none exist
+  const autoCreatedRef = useRef(false);
+  useEffect(() => {
+    if (autoCreatedRef.current) return;
+    if (incomeSources === undefined) return; // still loading
+    if (incomeSources.length > 0) return; // already have sources
+    if (!deal.customer.employmentInfo) return; // no employment data to seed
+
+    autoCreatedRef.current = true;
+    const emp = deal.customer.employmentInfo;
+    supabase.from('income_sources').insert({
+      deal_id: deal.id,
+      customer_id: deal.customer.id,
+      employer_name: emp.employer,
+      job_title: emp.jobTitle ?? null,
+      source_type: 'salaried' as any,
+      stated_monthly_income: emp.monthlyIncome,
+      calculated_monthly_income: emp.monthlyIncome,
+      is_primary: true,
+      verification_status: 'unverified' as any,
+      calc_method: 'mi',
+    }).then(({ error }) => {
+      if (!error) refetchSources();
+    });
+  }, [incomeSources, deal.id, deal.customer]);
+
   // Auto-match unlinked extractions to income sources and update calculated income
   useEffect(() => {
     if (!extractions || !incomeSources || incomeSources.length === 0) return;
