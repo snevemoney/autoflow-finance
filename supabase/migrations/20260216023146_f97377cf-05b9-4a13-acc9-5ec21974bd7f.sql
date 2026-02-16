@@ -1,0 +1,1 @@
+ALTER TYPE public.debt_type ADD VALUE IF NOT EXISTS 'rent';

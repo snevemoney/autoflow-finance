@@ -13,7 +13,7 @@ import { Scale, Plus, Trash2, Gavel, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 
-export type DebtType = 'garnishment' | 'child_support' | 'auto_loan' | 'student_loan' | 'credit_card' | 'mortgage' | 'medical' | 'other';
+export type DebtType = 'garnishment' | 'child_support' | 'auto_loan' | 'student_loan' | 'credit_card' | 'mortgage' | 'medical' | 'rent' | 'other';
 
 export interface ApplicantDebt {
   id: string;
@@ -38,6 +38,7 @@ const DEBT_TYPE_LABELS: Record<DebtType, string> = {
   credit_card: 'Credit Card',
   mortgage: 'Mortgage',
   medical: 'Medical',
+  rent: 'Rent/Housing',
   other: 'Other',
 };
 
@@ -49,6 +50,7 @@ const DEBT_TYPE_COLORS: Record<DebtType, string> = {
   credit_card: 'bg-warning/10 text-warning border-warning/30',
   mortgage: 'bg-muted text-muted-foreground border-border',
   medical: 'bg-warning/10 text-warning border-warning/30',
+  rent: 'bg-accent text-accent-foreground border-border',
   other: 'bg-muted text-muted-foreground border-border',
 };
 

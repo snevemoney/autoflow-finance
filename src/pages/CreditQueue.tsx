@@ -31,30 +31,36 @@ export default function CreditQueue() {
       .in('deal_id', dealIds)
       .then(({ data }) => {
         if (!data) return;
-        const map = new Map<string, { totalMonthlyDebts: number; hasGarnishments: boolean }>();
+        const map = new Map<string, { totalMonthlyDebts: number; hasGarnishments: boolean; rentPayment: number; debtCount: number; debtTypes: Set<string> }>();
         for (const row of data) {
-          const existing = map.get(row.deal_id) || { totalMonthlyDebts: 0, hasGarnishments: false };
+          const existing = map.get(row.deal_id) || { totalMonthlyDebts: 0, hasGarnishments: false, rentPayment: 0, debtCount: 0, debtTypes: new Set<string>() };
           existing.totalMonthlyDebts += Number(row.monthly_payment);
-          if (row.debt_type === 'garnishment' || row.is_court_ordered) {
+          existing.debtCount++;
+          existing.debtTypes.add(row.debt_type);
+          if (row.debt_type === 'rent') {
+            existing.rentPayment += Number(row.monthly_payment);
+          }
+          if (row.debt_type === 'garnishment' || row.debt_type === 'child_support' || row.is_court_ordered) {
             existing.hasGarnishments = true;
           }
           map.set(row.deal_id, existing);
         }
 
-        // Compute DTI per deal
         const result = new Map<string, DebtSummary>();
         for (const deal of deals) {
           const debts = map.get(deal.id);
           const monthlyIncome = deal.customer.employmentInfo?.monthlyIncome || 0;
           const totalDebts = debts?.totalMonthlyDebts || 0;
-          const dti =
-            monthlyIncome > 0
-              ? ((deal.financingTerms.monthlyPayment + totalDebts) / monthlyIncome) * 100
-              : null;
+          const dti = monthlyIncome > 0
+            ? ((deal.financingTerms.monthlyPayment + totalDebts) / monthlyIncome) * 100
+            : null;
           result.set(deal.id, {
             totalMonthlyDebts: totalDebts,
             hasGarnishments: debts?.hasGarnishments || false,
             dti,
+            rentPayment: debts?.rentPayment || 0,
+            debtCount: debts?.debtCount || 0,
+            debtTypes: debts ? Array.from(debts.debtTypes) : [],
           });
         }
         setDebtMap(result);
