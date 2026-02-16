@@ -5,6 +5,7 @@ import { AlertTriangle, CheckCircle2, Clock, FileWarning, Briefcase, GraduationC
 import { cn } from '@/lib/utils';
 import { IncomeSourceActions } from './IncomeSourceActions';
 import { IncomeCalculator, type CalcMethod } from './IncomeCalculator';
+import { IncomeDocPreview } from './IncomeDocPreview';
 
 export type IncomeSourceType = 'salaried' | 'part_time' | 'self_employed' | 'contractor' | 'seasonal' | 'education' | 'unemployed' | 'pension' | 'government_assistance';
 export type IncomeVerificationStatus = 'unverified' | 'verified' | 'flagged' | 'insufficient_docs' | 'needs_review';
@@ -228,6 +229,7 @@ export function IncomeSourceCard({ source, linkedExtractions, onUpdated }: Incom
                   vehicleForWork={(source as any).vehicle_for_work ?? false}
                   onUpdated={onUpdated}
                 />
+                <IncomeDocPreview dealId={source.deal_id} sourceId={source.id} />
               </div>
             )}
           </div>
