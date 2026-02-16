@@ -220,18 +220,18 @@ export function IncomeVerificationCard({ deal }: IncomeVerificationCardProps) {
 
     return (
       <Card>
-        <CardHeader className="pb-3">
+        <CardHeader className="pb-2 pt-4 px-4">
           <div className="flex items-center justify-between">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <DollarSign className="h-5 w-5" />
+            <CardTitle className="flex items-center gap-2 text-sm font-semibold">
+              <DollarSign className="h-4 w-4" />
               Income Verification
             </CardTitle>
-            <Button variant="outline" size="sm" onClick={() => setAddDialogOpen(true)}>
-              <Plus className="h-4 w-4 mr-1" /> Add Source
+            <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => setAddDialogOpen(true)}>
+              <Plus className="h-3 w-3 mr-1" /> Add Source
             </Button>
           </div>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-3 px-4 pb-4 pt-0">
           {/* Review required banner */}
           {hasNeedsReview && (
             <div className="flex items-center gap-2 p-3 rounded-lg bg-info/10 border border-info/30 text-sm">
@@ -262,22 +262,22 @@ export function IncomeVerificationCard({ deal }: IncomeVerificationCardProps) {
           <div className="grid grid-cols-2 gap-3 text-sm">
             <div>
               <p className="text-muted-foreground text-xs">Total Stated</p>
-              <p className="font-bold text-lg">${totalStated.toLocaleString()}/mo</p>
+              <p className="font-bold text-base">${totalStated.toLocaleString()}/mo</p>
             </div>
             <div>
               <p className="text-muted-foreground text-xs">Total Calculated</p>
-              <p className="font-bold text-lg">${totalCalculated.toLocaleString()}/mo</p>
+              <p className="font-bold text-base">${totalCalculated.toLocaleString()}/mo</p>
             </div>
           </div>
 
           {/* PTI */}
           <div className={cn(
-            'p-3 rounded-lg border text-sm',
+            'p-2 rounded-md border text-xs',
             ptiHealthy ? 'bg-success/5 border-success/20' : 'bg-warning/5 border-warning/20'
           )}>
             <div className="flex justify-between items-center">
               <span className="text-muted-foreground">Payment / Income</span>
-              <span className={cn('font-bold', ptiHealthy ? 'text-success' : 'text-warning')}>
+              <span className={cn('font-semibold', ptiHealthy ? 'text-success' : 'text-warning')}>
                 {pti}%
               </span>
             </div>
@@ -292,18 +292,15 @@ export function IncomeVerificationCard({ deal }: IncomeVerificationCardProps) {
             const dtiHealthy = typeof dti === 'string' ? false : parseFloat(dti) <= 45;
             return (
               <div className={cn(
-                'p-3 rounded-lg border text-sm',
+                'p-2 rounded-md border text-xs',
                 dtiHealthy ? 'bg-success/5 border-success/20' : 'bg-destructive/5 border-destructive/20'
               )}>
                 <div className="flex justify-between items-center">
-                  <span className="text-muted-foreground">DTI (Payment + Debts / Income)</span>
-                  <span className={cn('font-bold', dtiHealthy ? 'text-success' : 'text-destructive')}>
+                  <span className="text-muted-foreground">DTI (Payment + Debts)</span>
+                  <span className={cn('font-semibold', dtiHealthy ? 'text-success' : 'text-destructive')}>
                     {dti}%
                   </span>
                 </div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  ${monthlyPayment.toLocaleString()} payment + ${totalDebtPayments.toLocaleString()} debts
-                </p>
               </div>
             );
           })()}

@@ -207,9 +207,9 @@ export default function DealDetail() {
         subtitle={`${deal.customer.firstName} ${deal.customer.lastName}`}
       />
 
-      <div className="flex-1 overflow-y-auto p-6 scrollbar-thin">
+      <div className="flex-1 overflow-y-auto p-4 lg:p-6 scrollbar-thin">
         {/* Header Actions */}
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between mb-4">
           <Button variant="ghost" onClick={() => navigate(-1)}>
             <ArrowLeft className="h-4 w-4 mr-2" />
             Back
@@ -236,9 +236,9 @@ export default function DealDetail() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
           {/* Main Content */}
-          <div className="lg:col-span-2 space-y-6">
+          <div className="lg:col-span-3 space-y-4">
             {/* Income Verification */}
             <IncomeVerificationCard deal={deal} />
 
@@ -251,7 +251,7 @@ export default function DealDetail() {
                 <TabsTrigger value="notes">Notes</TabsTrigger>
               </TabsList>
 
-              <TabsContent value="overview" className="space-y-6 mt-6">
+              <TabsContent value="overview" className="space-y-4 mt-4">
                 {/* Customer Info */}
                 <Card>
                   <CardHeader>
@@ -413,7 +413,7 @@ export default function DealDetail() {
                 </Card>
               </TabsContent>
 
-              <TabsContent value="documents" className="mt-6">
+              <TabsContent value="documents" className="mt-4">
                 <Card>
                   <CardHeader>
                     <CardTitle>Upload Documents</CardTitle>
@@ -472,7 +472,7 @@ export default function DealDetail() {
                 </Card>
               </TabsContent>
 
-              <TabsContent value="notes" className="mt-6">
+              <TabsContent value="notes" className="mt-4">
                 <Card>
                   <CardHeader>
                     <CardTitle>Add Note</CardTitle>
@@ -488,7 +488,7 @@ export default function DealDetail() {
                   </CardContent>
                 </Card>
 
-                <Card className="mt-6">
+                <Card className="mt-4">
                   <CardHeader>
                     <CardTitle>Notes History</CardTitle>
                   </CardHeader>
@@ -515,7 +515,7 @@ export default function DealDetail() {
           </div>
 
           {/* Sidebar */}
-          <div className="space-y-6">
+          <div className="lg:col-span-2 space-y-4">
             {/* Deal Summary */}
             <DealSummaryCard deal={deal} incomeSources={incomeSources} debts={applicantDebts} />
 
