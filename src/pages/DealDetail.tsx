@@ -503,11 +503,11 @@ export default function DealDetail() {
 
           {/* Sidebar */}
           <div className="space-y-6">
-            {/* Deal Summary */}
-            <DealSummaryCard deal={deal} incomeSources={incomeSources} debts={applicantDebts} />
-
             {/* Income Verification */}
             <IncomeVerificationCard deal={deal} />
+
+            {/* Deal Summary */}
+            <DealSummaryCard deal={deal} incomeSources={incomeSources} debts={applicantDebts} />
 
             {/* Applicant Debts */}
             <ApplicantDebtsCard dealId={deal.id} customerId={deal.customer.id} />
