@@ -1,9 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useQuery } from '@tanstack/react-query';
-import { FileText, Image, ChevronDown, ChevronUp, ExternalLink, File } from 'lucide-react';
+import { FileText, Image, ChevronDown, ChevronUp, ExternalLink, File, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { format } from 'date-fns';
 
 interface IncomeDocument {
   id: string;
@@ -19,15 +18,12 @@ interface IncomeDocPreviewProps {
   sourceId: string;
 }
 
-function isMockUrl(url: string) {
-  return !url.startsWith('http') && !url.startsWith('blob:');
-}
-
 export function IncomeDocPreview({ dealId, sourceId }: IncomeDocPreviewProps) {
   const [expanded, setExpanded] = useState(false);
-  const [previewDoc, setPreviewDoc] = useState<IncomeDocument | null>(null);
+  const [previewDocId, setPreviewDocId] = useState<string | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [loadingPreview, setLoadingPreview] = useState(false);
 
-  // Get document IDs linked to this income source via extracted_income_data
   const { data: linkedDocIds } = useQuery({
     queryKey: ['income-doc-ids', sourceId],
     queryFn: async () => {
@@ -40,7 +36,6 @@ export function IncomeDocPreview({ dealId, sourceId }: IncomeDocPreviewProps) {
     },
   });
 
-  // Get all income-type documents for this deal
   const { data: incomeDocs } = useQuery({
     queryKey: ['income-docs', dealId],
     queryFn: async () => {
@@ -56,10 +51,10 @@ export function IncomeDocPreview({ dealId, sourceId }: IncomeDocPreviewProps) {
 
   if (!incomeDocs || incomeDocs.length === 0) return null;
 
-  // Show linked docs first, then other income docs
   const linkedDocs = incomeDocs.filter(d => linkedDocIds?.includes(d.id));
   const otherDocs = incomeDocs.filter(d => !linkedDocIds?.includes(d.id));
   const allDocs = [...linkedDocs, ...otherDocs];
+  const previewDoc = allDocs.find(d => d.id === previewDocId) ?? null;
 
   const isImage = (name: string) => /\.(jpg|jpeg|png|gif|webp)$/i.test(name);
   const isPdf = (name: string) => /\.pdf$/i.test(name);
@@ -68,6 +63,29 @@ export function IncomeDocPreview({ dealId, sourceId }: IncomeDocPreviewProps) {
     if (isImage(name)) return <Image className="h-3 w-3 text-info" />;
     if (isPdf(name)) return <FileText className="h-3 w-3 text-destructive" />;
     return <File className="h-3 w-3 text-muted-foreground" />;
+  };
+
+  const handleDocClick = async (doc: IncomeDocument) => {
+    if (previewDocId === doc.id) {
+      setPreviewDocId(null);
+      setPreviewUrl(null);
+      return;
+    }
+    setPreviewDocId(doc.id);
+    setPreviewUrl(null);
+    setLoadingPreview(true);
+
+    let url: string | null = null;
+    if (doc.file_url.startsWith('http') || doc.file_url.startsWith('blob:')) {
+      url = doc.file_url;
+    } else {
+      const path = doc.file_url.replace(/^documents\//, '');
+      const { data, error } = await supabase.storage.from('documents').createSignedUrl(path, 3600);
+      if (!error && data?.signedUrl) url = data.signedUrl;
+    }
+
+    setPreviewUrl(url);
+    setLoadingPreview(false);
   };
 
   return (
@@ -86,21 +104,18 @@ export function IncomeDocPreview({ dealId, sourceId }: IncomeDocPreviewProps) {
 
       {expanded && (
         <div className="space-y-2">
-          {/* Doc list */}
           <div className="space-y-1">
             {allDocs.map(doc => {
               const isLinked = linkedDocIds?.includes(doc.id);
-              const mock = isMockUrl(doc.file_url);
               return (
                 <button
                   key={doc.id}
-                  onClick={() => !mock && setPreviewDoc(previewDoc?.id === doc.id ? null : doc)}
+                  onClick={() => handleDocClick(doc)}
                   className={cn(
                     'flex items-center gap-2 w-full text-left px-2 py-1.5 rounded-md text-xs transition-colors',
-                    previewDoc?.id === doc.id
+                    previewDocId === doc.id
                       ? 'bg-primary/10 border border-primary/20'
-                      : 'hover:bg-muted/50',
-                    mock && 'opacity-50 cursor-not-allowed'
+                      : 'hover:bg-muted/50'
                   )}
                 >
                   {getIcon(doc.name)}
@@ -108,41 +123,53 @@ export function IncomeDocPreview({ dealId, sourceId }: IncomeDocPreviewProps) {
                   {isLinked && (
                     <span className="text-[10px] text-success bg-success/10 px-1.5 py-0.5 rounded">linked</span>
                   )}
-                  {!mock && <ExternalLink className="h-3 w-3 text-muted-foreground shrink-0" />}
+                  <ExternalLink className="h-3 w-3 text-muted-foreground shrink-0" />
                 </button>
               );
             })}
           </div>
 
           {/* Inline preview */}
-          {previewDoc && !isMockUrl(previewDoc.file_url) && (
+          {previewDocId && (
             <div className="rounded-md border border-border overflow-hidden bg-background">
-              <div className="flex items-center justify-between px-2 py-1 bg-muted/50 border-b border-border">
-                <span className="text-[10px] font-medium truncate">{previewDoc.name}</span>
-                <a
-                  href={previewDoc.file_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-[10px] text-primary hover:underline shrink-0 ml-2"
-                >
-                  Open full
-                </a>
-              </div>
-              {isImage(previewDoc.name) ? (
-                <img
-                  src={previewDoc.file_url}
-                  alt={previewDoc.name}
-                  className="w-full max-h-[300px] object-contain"
-                />
-              ) : isPdf(previewDoc.name) ? (
-                <iframe
-                  src={previewDoc.file_url}
-                  className="w-full h-[300px]"
-                  title={previewDoc.name}
-                />
+              {loadingPreview ? (
+                <div className="flex items-center justify-center p-6">
+                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                </div>
+              ) : previewUrl && previewDoc ? (
+                <>
+                  <div className="flex items-center justify-between px-2 py-1 bg-muted/50 border-b border-border">
+                    <span className="text-[10px] font-medium truncate">{previewDoc.name}</span>
+                    <a
+                      href={previewUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[10px] text-primary hover:underline shrink-0 ml-2"
+                    >
+                      Open full
+                    </a>
+                  </div>
+                  {isImage(previewDoc.name) ? (
+                    <img
+                      src={previewUrl}
+                      alt={previewDoc.name}
+                      className="w-full max-h-[300px] object-contain"
+                    />
+                  ) : isPdf(previewDoc.name) ? (
+                    <iframe
+                      src={previewUrl}
+                      className="w-full h-[300px]"
+                      title={previewDoc.name}
+                    />
+                  ) : (
+                    <div className="flex items-center justify-center p-6 text-xs text-muted-foreground">
+                      Preview not available for this file type
+                    </div>
+                  )}
+                </>
               ) : (
                 <div className="flex items-center justify-center p-6 text-xs text-muted-foreground">
-                  Preview not available for this file type
+                  Unable to load preview
                 </div>
               )}
             </div>
