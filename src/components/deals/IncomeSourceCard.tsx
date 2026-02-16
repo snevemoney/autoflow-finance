@@ -74,6 +74,7 @@ const STATUS_CONFIG: Record<IncomeVerificationStatus, { label: string; icon: typ
 const CALC_METHOD_LABELS: Record<CalcMethod, string> = {
   mi: 'MI',
   ytd: 'YTD',
+  lower_of: 'Lower',
   mi_plus_10: 'MI+10',
   mi_plus_20: 'MI+20',
   manual: 'Manual',

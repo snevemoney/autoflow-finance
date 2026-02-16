@@ -11,7 +11,7 @@ import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
 
-export type CalcMethod = 'mi' | 'ytd' | 'mi_plus_10' | 'mi_plus_20' | 'manual';
+export type CalcMethod = 'mi' | 'ytd' | 'mi_plus_10' | 'mi_plus_20' | 'manual' | 'lower_of';
 type MiInputMode = 'salary' | 'hourly';
 type PayFrequency = 'weekly' | 'biweekly' | 'semimonthly' | 'monthly';
 
@@ -56,6 +56,7 @@ interface IncomeCalculatorProps {
 const CALC_METHODS: { value: CalcMethod; label: string; short: string }[] = [
   { value: 'mi', label: 'Monthly Income', short: 'MI' },
   { value: 'ytd', label: 'Year-to-Date', short: 'YTD' },
+  { value: 'lower_of', label: 'Lower of MI/YTD', short: 'Lower' },
   { value: 'mi_plus_10', label: 'MI + 10% Tips', short: 'MI+10' },
   { value: 'mi_plus_20', label: 'MI + 20% Tips', short: 'MI+20' },
   { value: 'manual', label: 'Manual Override', short: 'Manual' },
@@ -127,7 +128,7 @@ export function IncomeCalculator({
   const baseMI = calculatedMonthlyIncome ?? statedMonthlyIncome;
 
   const availableMethods = isBenefitType
-    ? CALC_METHODS.filter(m => m.value === 'mi' || m.value === 'ytd' || m.value === 'manual')
+    ? CALC_METHODS.filter(m => m.value === 'mi' || m.value === 'ytd' || m.value === 'manual' || m.value === 'lower_of')
     : CALC_METHODS;
 
   const computedResult = useMemo(() => {
@@ -175,6 +176,17 @@ export function IncomeCalculator({
         const months = parseInt(ytdMonths);
         if (!gross || !months || months < 1) return null;
         return Math.round(gross / months);
+      }
+      case 'lower_of': {
+        const miVal = getMiBase();
+        const ytdGrossVal = parseFloat(ytdGross);
+        const ytdMonthsVal = parseInt(ytdMonths);
+        const ytdVal = ytdGrossVal > 0 && ytdMonthsVal >= 1 ? Math.round(ytdGrossVal / ytdMonthsVal) : null;
+        if (miVal != null && ytdVal != null) return Math.min(miVal, ytdVal);
+        // If only one is available, use that one
+        if (miVal != null) return miVal;
+        if (ytdVal != null) return ytdVal;
+        return null;
       }
       case 'mi_plus_10': {
         const miVal = getMiBase();
@@ -244,9 +256,9 @@ export function IncomeCalculator({
         updated_at: new Date().toISOString(),
       };
 
-      if (method === 'ytd') {
-        updates.ytd_gross = parseFloat(ytdGross);
-        updates.ytd_months = parseInt(ytdMonths);
+      if (method === 'ytd' || method === 'lower_of') {
+        updates.ytd_gross = parseFloat(ytdGross) || null;
+        updates.ytd_months = parseInt(ytdMonths) || null;
       }
 
       if (method === 'manual') {
@@ -469,7 +481,9 @@ export function IncomeCalculator({
     ? (parseFloat(manualAmount) > 0 && manualReason.trim().length > 0)
     : method === 'ytd'
       ? (parseFloat(ytdGross) > 0 && parseInt(ytdMonths) >= 1)
-      : computedResult != null;
+      : method === 'lower_of'
+        ? computedResult != null
+        : computedResult != null;
 
   if (vehicleForWork) {
     return (
@@ -485,7 +499,8 @@ export function IncomeCalculator({
     );
   }
 
-  const showMiInputs = method === 'mi' || method === 'mi_plus_10' || method === 'mi_plus_20';
+  const showMiInputs = method === 'mi' || method === 'mi_plus_10' || method === 'mi_plus_20' || method === 'lower_of';
+  const showYtdInputs = method === 'ytd' || method === 'lower_of';
 
   return (
     <div className="space-y-3 p-3 rounded-lg border border-border bg-muted/30">
@@ -647,7 +662,7 @@ export function IncomeCalculator({
       </div>
 
       {/* YTD inputs */}
-      {method === 'ytd' && (
+      {showYtdInputs && (
         <div className="grid grid-cols-2 gap-2">
           <div className="space-y-1">
             <Label className="text-xs">YTD Gross ($)</Label>
@@ -971,9 +986,27 @@ export function IncomeCalculator({
 
       {/* Computed result */}
       {computedResult != null && (
-        <div className="p-2.5 rounded-md bg-primary/5 border border-primary/20 text-center">
-          <p className="text-xs text-muted-foreground">Calculated Total</p>
+        <div className="p-2.5 rounded-md bg-primary/5 border border-primary/20 text-center space-y-1">
+          <p className="text-xs text-muted-foreground">
+            {method === 'lower_of' ? 'Conservative Estimate (Lower of MI/YTD)' : 'Calculated Total'}
+          </p>
           <p className="text-lg font-bold text-primary">${computedResult.toLocaleString()}/mo</p>
+          {method === 'lower_of' && (() => {
+            const miVal = getMiBase();
+            const ytdGrossVal = parseFloat(ytdGross);
+            const ytdMonthsVal = parseInt(ytdMonths);
+            const ytdVal = ytdGrossVal > 0 && ytdMonthsVal >= 1 ? Math.round(ytdGrossVal / ytdMonthsVal) : null;
+            if (miVal != null && ytdVal != null) {
+              const picked = miVal <= ytdVal ? 'MI' : 'YTD';
+              return (
+                <div className="text-xs text-muted-foreground space-y-0.5">
+                  <p>MI: ${miVal.toLocaleString()} — YTD: ${ytdVal.toLocaleString()}</p>
+                  <p className="text-primary font-medium">Using {picked} (lower)</p>
+                </div>
+              );
+            }
+            return <p className="text-xs text-muted-foreground">Enter both MI and YTD values to compare</p>;
+          })()}
         </div>
       )}
 
