@@ -219,6 +219,9 @@ export function IncomeSourceCard({ source, linkedExtractions, onUpdated }: Incom
                   currentYtdMonths={source.ytd_months}
                   currentManualAmount={source.manual_override_amount}
                   currentManualReason={source.manual_override_reason}
+                  currentHourlyRate={source.hourly_rate}
+                  currentHoursPerWeek={source.hours_per_week}
+                  currentPayFrequency={source.pay_frequency}
                   missedDaysFlag={source.missed_days_flag ?? false}
                   additionalDocsRequested={source.additional_docs_requested ?? []}
                   vehicleForWork={(source as any).vehicle_for_work ?? false}
