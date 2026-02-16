@@ -1,6 +1,8 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { DollarSign, TrendingUp, TrendingDown, Briefcase, AlertTriangle, FileSearch, Plus, ClipboardCheck, Ban } from 'lucide-react';
+import { DollarSign, TrendingUp, TrendingDown, Briefcase, AlertTriangle, FileSearch, Plus, ClipboardCheck, Ban, ChevronDown, ChevronUp, Calculator } from 'lucide-react';
+import { IncomeCalculator } from './IncomeCalculator';
+import { IncomeDocPreview } from './IncomeDocPreview';
 import { cn } from '@/lib/utils';
 import type { Deal } from '@/types/deal';
 import { supabase } from '@/integrations/supabase/client';
@@ -68,6 +70,11 @@ export function IncomeVerificationCard({ deal }: IncomeVerificationCardProps) {
     },
   });
   const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const [legacyCalcOpen, setLegacyCalcOpen] = useState(false);
+  const [legacyFillHandler, setLegacyFillHandler] = useState<((field: string, value: string) => void) | null>(null);
+  const handleLegacyFillReady = useCallback((handler: (field: string, value: string) => void) => {
+    setLegacyFillHandler(() => handler);
+  }, []);
   const matchedRef = useRef<Set<string>>(new Set());
 
   // Query income sources
@@ -460,6 +467,46 @@ export function IncomeVerificationCard({ deal }: IncomeVerificationCardProps) {
             ))}
           </div>
         )}
+
+        {/* Income Calculator toggle */}
+        <div className="border-t border-border pt-3">
+          <button
+            onClick={() => setLegacyCalcOpen(!legacyCalcOpen)}
+            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors w-full"
+          >
+            {legacyCalcOpen ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+            <Calculator className="h-3 w-3" />
+            Income Calculator
+          </button>
+          {legacyCalcOpen && (
+            <div className="mt-2">
+              <IncomeCalculator
+                sourceId={`legacy-${deal.id}`}
+                dealId={deal.id}
+                sourceType="salaried"
+                statedMonthlyIncome={statedIncome}
+                calculatedMonthlyIncome={calculatedIncome}
+                currentCalcMethod="mi"
+                currentTipPercentage={null}
+                currentYtdGross={null}
+                currentYtdMonths={null}
+                currentManualAmount={null}
+                currentManualReason={null}
+                currentHourlyRate={null}
+                currentHoursPerWeek={null}
+                currentPayFrequency={null}
+                missedDaysFlag={false}
+                additionalDocsRequested={[]}
+                vehicleForWork={false}
+                contractMonths={null}
+                sourceCreatedAt={deal.createdAt}
+                onUpdated={() => {}}
+                onFillFieldReady={handleLegacyFillReady}
+              />
+              <IncomeDocPreview dealId={deal.id} sourceId={`legacy-${deal.id}`} onClickFill={legacyFillHandler ?? undefined} />
+            </div>
+          )}
+        </div>
 
         <div className={cn(
           'p-3 rounded-lg border text-sm',
