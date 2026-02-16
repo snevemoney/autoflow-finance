@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Calculator, AlertTriangle, FileText, Loader2, Ban, ShieldAlert } from 'lucide-react';
+import { Calculator, AlertTriangle, FileText, Loader2, Ban, ShieldAlert, FileDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
@@ -746,14 +746,16 @@ export function IncomeCalculator({
 
           // Build smart diagnosis reasons based on deal context
           const reasons: string[] = [];
+          // Build recommended docs based on context
+          const recDocs: string[] = [];
+
           if (!isOk) {
-            // Seasonal employment
             if (sourceType === 'seasonal') {
               reasons.push(miHigher
                 ? 'Seasonal worker — YTD may include off-season months with reduced or zero pay, pulling the average down.'
                 : 'Seasonal worker — current pay stub may be from an off-season period; YTD includes peak-season earnings.');
+              recDocs.push('12 months bank statements', 'Prior year W-2');
             }
-            // Education / contract-based
             if (sourceType === 'education') {
               const cm = contractMonthsProp;
               if (cm && cm < 12) {
@@ -761,33 +763,79 @@ export function IncomeCalculator({
               } else {
                 reasons.push('Education employee — check if YTD months align with the academic calendar vs. calendar year.');
               }
+              recDocs.push('Employment contract', 'Prior year W-2');
             }
-            // Part-time / hourly — variable hours
             if (sourceType === 'part_time') {
               reasons.push(miHigher
                 ? 'Hourly worker — current stub may reflect more hours than average. YTD captures periods with fewer hours.'
                 : 'Hourly worker — current stub may reflect reduced hours. YTD includes periods with more scheduled shifts.');
+              recDocs.push('3 months pay stubs', '3 months bank statements');
             }
-            // Self-employed / contractor — irregular income
             if (sourceType === 'self_employed' || sourceType === 'contractor') {
               reasons.push('Self-employed/contractor income is often irregular. Compare against 12-month bank statement deposits for a more reliable average.');
+              recDocs.push('12 months bank statements', 'Most recent tax return', 'Profit & loss statement');
             }
-            // Recent hire detection — if YTD months is low (1-2), they may still be ramping
             if (ytdM <= 2) {
               reasons.push(`Only ${ytdM} month${ytdM === 1 ? '' : 's'} of YTD data — recent hire or new position. YTD average may not be stable yet.`);
+              if (!recDocs.includes('Offer letter / employment verification')) {
+                recDocs.push('Offer letter / employment verification');
+              }
             }
-            // Pay frequency mismatch hint
             if (miHigher && payFrequency === 'biweekly') {
               reasons.push('Biweekly pay has 26 periods/year (not 24). Some months have 3 pay periods — the current stub may be from a 3-check month.');
+              if (recDocs.length === 0) recDocs.push('3 months pay stubs');
             }
-            // Generic overtime / bonus hint
             if (miHigher && reasons.length === 0) {
               reasons.push('Current pay stub may include overtime, bonuses, or commissions not reflected in the YTD average.');
             }
             if (!miHigher && reasons.length === 0) {
               reasons.push('YTD average is higher — prior months may have included overtime, bonuses, or a higher rate before a recent pay change.');
             }
+            // Fallback docs
+            if (recDocs.length === 0) {
+              recDocs.push('3 months pay stubs', '3 months bank statements');
+            }
           }
+
+          // Check which docs are already requested
+          const alreadyRequested = additionalDocsRequested ?? [];
+          const newDocs = recDocs.filter(d => !alreadyRequested.includes(d));
+
+          const handleRequestCrossCheckDocs = async () => {
+            setSaving(true);
+            try {
+              const allDocs = [...new Set([...alreadyRequested, ...recDocs])];
+              const { error } = await supabase
+                .from('income_sources')
+                .update({
+                  additional_docs_requested: allDocs,
+                  updated_at: new Date().toISOString(),
+                })
+                .eq('id', sourceId);
+              if (error) throw error;
+
+              const { data: { user } } = await supabase.auth.getUser();
+              await supabase.from('deal_timeline').insert({
+                deal_id: dealId,
+                type: 'note_added' as any,
+                description: `📄 Documents requested to reconcile MI/YTD gap (${pct}%): ${recDocs.join(', ')}`,
+                created_by: user?.id ?? null,
+                metadata: {
+                  action: 'cross_check_doc_request',
+                  gap_percent: pct,
+                  requested_docs: recDocs,
+                  source_type: sourceType,
+                },
+              });
+
+              toast({ title: 'Documents requested', description: recDocs.join(', ') });
+              onUpdated();
+            } catch (err: any) {
+              toast({ title: 'Error', description: err.message, variant: 'destructive' });
+            } finally {
+              setSaving(false);
+            }
+          };
 
           return (
             <div className={cn(
@@ -819,6 +867,38 @@ export function IncomeCalculator({
                       {reason}
                     </p>
                   ))}
+                </div>
+              )}
+              {!isOk && recDocs.length > 0 && (
+                <div className="space-y-1.5 pt-1 border-t border-border/50">
+                  <p className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                    <FileDown className="h-3 w-3" />
+                    Recommended documents:
+                  </p>
+                  <div className="flex flex-wrap gap-1">
+                    {recDocs.map((doc, i) => (
+                      <Badge key={i} variant="outline" className={cn('text-xs', alreadyRequested.includes(doc) ? 'bg-success/10 text-success border-success/30' : 'border-border')}>
+                        {alreadyRequested.includes(doc) ? '✓ ' : ''}{doc}
+                      </Badge>
+                    ))}
+                  </div>
+                  {newDocs.length > 0 ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs w-full gap-1"
+                      onClick={handleRequestCrossCheckDocs}
+                      disabled={saving}
+                    >
+                      {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <FileDown className="h-3 w-3" />}
+                      Request {newDocs.length} Document{newDocs.length !== 1 ? 's' : ''}
+                    </Button>
+                  ) : (
+                    <p className="text-xs text-success flex items-center gap-1">
+                      <FileText className="h-3 w-3" />
+                      All recommended documents already requested
+                    </p>
+                  )}
                 </div>
               )}
             </div>
