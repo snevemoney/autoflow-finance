@@ -87,6 +87,7 @@ export function IncomeCalculator({
   const [manualReason, setManualReason] = useState(currentManualReason ?? '');
   const [benefitPercent, setBenefitPercent] = useState(currentTipPercentage?.toString() ?? '50');
   const [saving, setSaving] = useState(false);
+  const [highlightedField, setHighlightedField] = useState<string | null>(null);
 
   // MI sub-mode state
   const [miInputMode, setMiInputMode] = useState<MiInputMode>(currentHourlyRate ? 'hourly' : 'salary');
@@ -104,6 +105,8 @@ export function IncomeCalculator({
       case 'manualAmount': setManualAmount(value); setMethod('manual'); break;
       case 'payFrequency': setPayFrequency(value as PayFrequency); break;
     }
+    setHighlightedField(field);
+    setTimeout(() => setHighlightedField(null), 700);
   }, []);
 
   useEffect(() => {
@@ -464,7 +467,7 @@ export function IncomeCalculator({
                   onDropValue={v => setGrossPerPeriod(v)}
                   onDropField={handleDropFieldMethod}
                   placeholder="2100"
-                  className="h-8 text-xs"
+                  className={cn('h-8 text-xs', highlightedField === 'grossPerPeriod' && 'animate-fill-highlight')}
                 />
               </div>
               <div className="space-y-1">
@@ -498,7 +501,7 @@ export function IncomeCalculator({
                   onDropValue={v => setHourlyRate(v)}
                   onDropField={handleDropFieldMethod}
                   placeholder="18.50"
-                  className="h-8 text-xs"
+                  className={cn('h-8 text-xs', highlightedField === 'hourlyRate' && 'animate-fill-highlight')}
                 />
               </div>
               <div className="space-y-1">
@@ -511,7 +514,7 @@ export function IncomeCalculator({
                   onDropValue={v => setHoursPerWeek(v)}
                   onDropField={handleDropFieldMethod}
                   placeholder="40"
-                  className="h-8 text-xs"
+                  className={cn('h-8 text-xs', highlightedField === 'hoursPerWeek' && 'animate-fill-highlight')}
                 />
               </div>
               {parseFloat(hourlyRate) > 0 && parseFloat(hoursPerWeek) > 0 && (
@@ -542,7 +545,7 @@ export function IncomeCalculator({
               onDropValue={v => setYtdGross(v)}
               onDropField={handleDropFieldMethod}
               placeholder="25200"
-              className="h-8 text-xs"
+              className={cn('h-8 text-xs', highlightedField === 'ytdGross' && 'animate-fill-highlight')}
             />
           </div>
           <div className="space-y-1">
@@ -556,7 +559,7 @@ export function IncomeCalculator({
               onDropField={handleDropFieldMethod}
               placeholder="6"
               min="1"
-              className="h-8 text-xs"
+              className={cn('h-8 text-xs', highlightedField === 'ytdMonths' && 'animate-fill-highlight')}
             />
           </div>
           {parseFloat(ytdGross) > 0 && parseInt(ytdMonths) >= 1 && (
@@ -587,7 +590,7 @@ export function IncomeCalculator({
               onDropValue={v => setManualAmount(v)}
               onDropField={handleDropFieldMethod}
               placeholder="4500"
-              className="h-8 text-xs"
+              className={cn('h-8 text-xs', highlightedField === 'manualAmount' && 'animate-fill-highlight')}
             />
           </div>
           <div className="space-y-1">
