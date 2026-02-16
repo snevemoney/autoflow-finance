@@ -232,6 +232,8 @@ export function IncomeSourceCard({ source, linkedExtractions, onUpdated }: Incom
                   missedDaysFlag={source.missed_days_flag ?? false}
                   additionalDocsRequested={source.additional_docs_requested ?? []}
                   vehicleForWork={(source as any).vehicle_for_work ?? false}
+                  contractMonths={source.contract_months}
+                  sourceCreatedAt={source.created_at}
                   onUpdated={onUpdated}
                   onFillFieldReady={handleFillFieldReady}
                 />
