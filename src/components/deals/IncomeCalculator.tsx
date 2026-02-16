@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { DroppableInput } from './DroppableInput';
@@ -48,6 +48,7 @@ interface IncomeCalculatorProps {
   additionalDocsRequested: string[];
   vehicleForWork: boolean;
   onUpdated: () => void;
+  onFillFieldReady?: (handler: (field: string, value: string) => void) => void;
 }
 
 const CALC_METHODS: { value: CalcMethod; label: string; short: string }[] = [
@@ -77,6 +78,7 @@ export function IncomeCalculator({
   additionalDocsRequested,
   vehicleForWork,
   onUpdated,
+  onFillFieldReady,
 }: IncomeCalculatorProps) {
   const [method, setMethod] = useState<CalcMethod>(currentCalcMethod);
   const [ytdGross, setYtdGross] = useState(currentYtdGross?.toString() ?? '');
@@ -92,6 +94,21 @@ export function IncomeCalculator({
   const [payFrequency, setPayFrequency] = useState<PayFrequency>((currentPayFrequency as PayFrequency) ?? 'biweekly');
   const [hourlyRate, setHourlyRate] = useState(currentHourlyRate?.toString() ?? '');
   const [hoursPerWeek, setHoursPerWeek] = useState(currentHoursPerWeek?.toString() ?? '');
+
+  const fillField = useCallback((field: string, value: string) => {
+    switch (field) {
+      case 'grossPerPeriod': setGrossPerPeriod(value); break;
+      case 'hourlyRate': setHourlyRate(value); break;
+      case 'hoursPerWeek': setHoursPerWeek(value); break;
+      case 'ytdGross': setYtdGross(value); setMethod('ytd'); break;
+      case 'manualAmount': setManualAmount(value); setMethod('manual'); break;
+      case 'payFrequency': setPayFrequency(value as PayFrequency); break;
+    }
+  }, []);
+
+  useEffect(() => {
+    onFillFieldReady?.(fillField);
+  }, [fillField, onFillFieldReady]);
 
   const isBenefitType = sourceType === 'government_assistance' || sourceType === 'unemployed';
   const baseMI = calculatedMonthlyIncome ?? statedMonthlyIncome;
