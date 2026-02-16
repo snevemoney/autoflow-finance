@@ -30,6 +30,7 @@ const FREQUENCY_LABELS: Record<PayFrequency, string> = {
 
 interface IncomeCalculatorProps {
   sourceId: string;
+  dealId: string;
   sourceType: string;
   statedMonthlyIncome: number;
   calculatedMonthlyIncome: number | null;
@@ -58,6 +59,7 @@ const CALC_METHODS: { value: CalcMethod; label: string; short: string }[] = [
 
 export function IncomeCalculator({
   sourceId,
+  dealId,
   sourceType,
   statedMonthlyIncome,
   calculatedMonthlyIncome,
@@ -228,6 +230,24 @@ export function IncomeCalculator({
 
       if (error) throw error;
 
+      const methodLabel = CALC_METHODS.find(m => m.value === method)?.short ?? method;
+
+      // Timeline entry for calculation applied
+      const { data: { user } } = await supabase.auth.getUser();
+      await supabase.from('deal_timeline').insert({
+        deal_id: dealId,
+        type: 'note_added' as any,
+        description: `Income calculation applied: ${methodLabel} → $${computedResult?.toLocaleString()}/mo`,
+        created_by: user?.id ?? null,
+        metadata: {
+          action: 'income_calculation',
+          method,
+          mi_input_mode: showMiInputs ? miInputMode : null,
+          calculated_amount: computedResult,
+          stated_amount: statedMonthlyIncome,
+        },
+      });
+
       // Variance check
       if (computedResult != null && statedMonthlyIncome > 0) {
         const variance = Math.abs(computedResult - statedMonthlyIncome) / statedMonthlyIncome;
@@ -246,15 +266,30 @@ export function IncomeCalculator({
               .update({ flag_reasons: [...existing, varianceFlag] })
               .eq('id', sourceId);
           }
+
+          // Timeline entry for variance flag
+          await supabase.from('deal_timeline').insert({
+            deal_id: dealId,
+            type: 'note_added' as any,
+            description: `⚠️ Income variance flagged: ${(variance * 100).toFixed(0)}% difference (calculated $${computedResult.toLocaleString()} vs stated $${statedMonthlyIncome.toLocaleString()})`,
+            created_by: user?.id ?? null,
+            metadata: {
+              action: 'income_variance_flag',
+              variance_percent: Math.round(variance * 100),
+              calculated_amount: computedResult,
+              stated_amount: statedMonthlyIncome,
+            },
+          });
+
           toast({
-            title: `Calculation applied: ${CALC_METHODS.find(m => m.value === method)?.short}`,
+            title: `Calculation applied: ${methodLabel}`,
             description: `⚠️ ${(variance * 100).toFixed(0)}% variance detected between calculated and stated income`,
           });
         } else {
-          toast({ title: `Calculation applied: ${CALC_METHODS.find(m => m.value === method)?.short}`, description: 'Variance within acceptable range ✓' });
+          toast({ title: `Calculation applied: ${methodLabel}`, description: 'Variance within acceptable range ✓' });
         }
       } else {
-        toast({ title: `Calculation applied: ${CALC_METHODS.find(m => m.value === method)?.short}` });
+        toast({ title: `Calculation applied: ${methodLabel}` });
       }
 
       onUpdated();
