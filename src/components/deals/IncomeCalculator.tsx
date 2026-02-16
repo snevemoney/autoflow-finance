@@ -4,12 +4,29 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Calculator, AlertTriangle, FileText, Loader2, Ban, ShieldAlert } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
 
 export type CalcMethod = 'mi' | 'ytd' | 'mi_plus_10' | 'mi_plus_20' | 'manual';
+type MiInputMode = 'salary' | 'hourly';
+type PayFrequency = 'weekly' | 'biweekly' | 'semimonthly' | 'monthly';
+
+const FREQUENCY_MULTIPLIERS: Record<PayFrequency, number> = {
+  weekly: 4.33,
+  biweekly: 2.17,
+  semimonthly: 2.00,
+  monthly: 1.00,
+};
+
+const FREQUENCY_LABELS: Record<PayFrequency, string> = {
+  weekly: 'Weekly',
+  biweekly: 'Biweekly',
+  semimonthly: 'Semimonthly',
+  monthly: 'Monthly',
+};
 
 interface IncomeCalculatorProps {
   sourceId: string;
@@ -22,6 +39,9 @@ interface IncomeCalculatorProps {
   currentYtdMonths: number | null;
   currentManualAmount: number | null;
   currentManualReason: string | null;
+  currentHourlyRate: number | null;
+  currentHoursPerWeek: number | null;
+  currentPayFrequency: string | null;
   missedDaysFlag: boolean;
   additionalDocsRequested: string[];
   vehicleForWork: boolean;
@@ -47,6 +67,9 @@ export function IncomeCalculator({
   currentYtdMonths,
   currentManualAmount,
   currentManualReason,
+  currentHourlyRate,
+  currentHoursPerWeek,
+  currentPayFrequency,
   missedDaysFlag,
   additionalDocsRequested,
   vehicleForWork,
@@ -60,16 +83,21 @@ export function IncomeCalculator({
   const [benefitPercent, setBenefitPercent] = useState(currentTipPercentage?.toString() ?? '50');
   const [saving, setSaving] = useState(false);
 
+  // MI sub-mode state
+  const [miInputMode, setMiInputMode] = useState<MiInputMode>(currentHourlyRate ? 'hourly' : 'salary');
+  const [grossPerPeriod, setGrossPerPeriod] = useState('');
+  const [payFrequency, setPayFrequency] = useState<PayFrequency>((currentPayFrequency as PayFrequency) ?? 'biweekly');
+  const [hourlyRate, setHourlyRate] = useState(currentHourlyRate?.toString() ?? '');
+  const [hoursPerWeek, setHoursPerWeek] = useState(currentHoursPerWeek?.toString() ?? '');
+
   const isBenefitType = sourceType === 'government_assistance' || sourceType === 'unemployed';
   const baseMI = calculatedMonthlyIncome ?? statedMonthlyIncome;
 
-  // For benefit types, disable tip methods but allow analyst to set percentage
   const availableMethods = isBenefitType
     ? CALC_METHODS.filter(m => m.value === 'mi' || m.value === 'ytd' || m.value === 'manual')
     : CALC_METHODS;
 
   const computedResult = useMemo(() => {
-    // For benefit types, apply analyst-chosen percentage
     if (isBenefitType && method !== 'manual') {
       const pct = parseInt(benefitPercent) || 50;
       const clampedPct = Math.max(0, Math.min(100, pct));
@@ -79,22 +107,50 @@ export function IncomeCalculator({
         if (!gross || !months || months < 1) return null;
         return Math.round((gross / months) * (clampedPct / 100));
       }
+      // For MI benefit mode, use the sub-mode inputs
+      if (method === 'mi') {
+        let miBase: number | null = null;
+        if (miInputMode === 'salary') {
+          const gpp = parseFloat(grossPerPeriod);
+          if (gpp > 0) miBase = Math.round(gpp * FREQUENCY_MULTIPLIERS[payFrequency]);
+        } else {
+          const rate = parseFloat(hourlyRate);
+          const hrs = parseFloat(hoursPerWeek);
+          if (rate > 0 && hrs > 0) miBase = Math.round(rate * hrs * 4.33);
+        }
+        if (miBase == null) return null;
+        return Math.round(miBase * (clampedPct / 100));
+      }
       return Math.round(baseMI * (clampedPct / 100));
     }
 
     switch (method) {
-      case 'mi':
-        return baseMI;
+      case 'mi': {
+        if (miInputMode === 'salary') {
+          const gpp = parseFloat(grossPerPeriod);
+          if (!gpp || gpp <= 0) return null;
+          return Math.round(gpp * FREQUENCY_MULTIPLIERS[payFrequency]);
+        } else {
+          const rate = parseFloat(hourlyRate);
+          const hrs = parseFloat(hoursPerWeek);
+          if (!rate || !hrs || rate <= 0 || hrs <= 0) return null;
+          return Math.round(rate * hrs * 4.33);
+        }
+      }
       case 'ytd': {
         const gross = parseFloat(ytdGross);
         const months = parseInt(ytdMonths);
         if (!gross || !months || months < 1) return null;
         return Math.round(gross / months);
       }
-      case 'mi_plus_10':
-        return Math.round(baseMI * 1.10);
-      case 'mi_plus_20':
-        return Math.round(baseMI * 1.20);
+      case 'mi_plus_10': {
+        const miVal = getMiBase();
+        return miVal != null ? Math.round(miVal * 1.10) : null;
+      }
+      case 'mi_plus_20': {
+        const miVal = getMiBase();
+        return miVal != null ? Math.round(miVal * 1.20) : null;
+      }
       case 'manual': {
         const amt = parseFloat(manualAmount);
         return amt > 0 ? amt : null;
@@ -102,14 +158,26 @@ export function IncomeCalculator({
       default:
         return baseMI;
     }
-  }, [method, baseMI, ytdGross, ytdMonths, manualAmount, isBenefitType, benefitPercent]);
+  }, [method, baseMI, ytdGross, ytdMonths, manualAmount, isBenefitType, benefitPercent, miInputMode, grossPerPeriod, payFrequency, hourlyRate, hoursPerWeek]);
+
+  function getMiBase(): number | null {
+    if (miInputMode === 'salary') {
+      const gpp = parseFloat(grossPerPeriod);
+      return gpp > 0 ? Math.round(gpp * FREQUENCY_MULTIPLIERS[payFrequency]) : null;
+    }
+    const rate = parseFloat(hourlyRate);
+    const hrs = parseFloat(hoursPerWeek);
+    return rate > 0 && hrs > 0 ? Math.round(rate * hrs * 4.33) : null;
+  }
 
   const tipAmount = useMemo(() => {
     if (isBenefitType) return null;
-    if (method === 'mi_plus_10') return Math.round(baseMI * 0.10);
-    if (method === 'mi_plus_20') return Math.round(baseMI * 0.20);
+    const miVal = getMiBase();
+    if (miVal == null) return null;
+    if (method === 'mi_plus_10') return Math.round(miVal * 0.10);
+    if (method === 'mi_plus_20') return Math.round(miVal * 0.20);
     return null;
-  }, [method, baseMI, isBenefitType]);
+  }, [method, isBenefitType, miInputMode, grossPerPeriod, payFrequency, hourlyRate, hoursPerWeek]);
 
   const isBusinessType = sourceType === 'self_employed' || sourceType === 'contractor';
 
@@ -120,6 +188,10 @@ export function IncomeCalculator({
     }
     if (method === 'ytd' && (!parseFloat(ytdGross) || !parseInt(ytdMonths) || parseInt(ytdMonths) < 1)) {
       toast({ title: 'YTD requires valid gross amount and months', variant: 'destructive' });
+      return;
+    }
+    if ((method === 'mi' || method === 'mi_plus_10' || method === 'mi_plus_20') && computedResult == null) {
+      toast({ title: 'Enter pay stub data to calculate income', variant: 'destructive' });
       return;
     }
 
@@ -133,6 +205,9 @@ export function IncomeCalculator({
         tip_percentage: isBenefitType ? benefitPct : tipPct,
         calculated_monthly_income: computedResult,
         benefit_cap_applied: isBenefitType && method !== 'manual',
+        pay_frequency: payFrequency,
+        hourly_rate: miInputMode === 'hourly' ? (parseFloat(hourlyRate) || null) : null,
+        hours_per_week: miInputMode === 'hourly' ? (parseFloat(hoursPerWeek) || null) : null,
         updated_at: new Date().toISOString(),
       };
 
@@ -152,7 +227,36 @@ export function IncomeCalculator({
         .eq('id', sourceId);
 
       if (error) throw error;
-      toast({ title: `Calculation applied: ${CALC_METHODS.find(m => m.value === method)?.short}` });
+
+      // Variance check
+      if (computedResult != null && statedMonthlyIncome > 0) {
+        const variance = Math.abs(computedResult - statedMonthlyIncome) / statedMonthlyIncome;
+        if (variance > 0.15) {
+          const varianceFlag = 'Income variance > 15%';
+          const { data: current } = await supabase
+            .from('income_sources')
+            .select('flag_reasons')
+            .eq('id', sourceId)
+            .single();
+
+          const existing: string[] = (current?.flag_reasons as string[]) ?? [];
+          if (!existing.includes(varianceFlag)) {
+            await supabase
+              .from('income_sources')
+              .update({ flag_reasons: [...existing, varianceFlag] })
+              .eq('id', sourceId);
+          }
+          toast({
+            title: `Calculation applied: ${CALC_METHODS.find(m => m.value === method)?.short}`,
+            description: `⚠️ ${(variance * 100).toFixed(0)}% variance detected between calculated and stated income`,
+          });
+        } else {
+          toast({ title: `Calculation applied: ${CALC_METHODS.find(m => m.value === method)?.short}`, description: 'Variance within acceptable range ✓' });
+        }
+      } else {
+        toast({ title: `Calculation applied: ${CALC_METHODS.find(m => m.value === method)?.short}` });
+      }
+
       onUpdated();
     } catch (err: any) {
       toast({ title: 'Error', description: err.message, variant: 'destructive' });
@@ -189,9 +293,8 @@ export function IncomeCalculator({
     ? (parseFloat(manualAmount) > 0 && manualReason.trim().length > 0)
     : method === 'ytd'
       ? (parseFloat(ytdGross) > 0 && parseInt(ytdMonths) >= 1)
-      : true;
+      : computedResult != null;
 
-  // Vehicle for work — show ineligible banner instead of calculator
   if (vehicleForWork) {
     return (
       <div className="space-y-3 p-3 rounded-lg border border-destructive bg-destructive/5">
@@ -205,6 +308,8 @@ export function IncomeCalculator({
       </div>
     );
   }
+
+  const showMiInputs = method === 'mi' || method === 'mi_plus_10' || method === 'mi_plus_20';
 
   return (
     <div className="space-y-3 p-3 rounded-lg border border-border bg-muted/30">
@@ -220,7 +325,7 @@ export function IncomeCalculator({
         )}
       </div>
 
-      {/* Benefit percentage input — analyst decides */}
+      {/* Benefit percentage input */}
       {isBenefitType && method !== 'manual' && (
         <div className="space-y-1.5">
           <p className="text-xs text-info bg-info/10 rounded-md px-2 py-1.5 border border-info/20">
@@ -236,7 +341,7 @@ export function IncomeCalculator({
               max="100"
               className="h-8 text-xs w-20"
             />
-            <span className="text-xs text-muted-foreground">of ${baseMI.toLocaleString()}/mo</span>
+            <span className="text-xs text-muted-foreground">of stated benefits</span>
           </div>
         </div>
       )}
@@ -259,9 +364,101 @@ export function IncomeCalculator({
         ))}
       </div>
 
-      {/* Base MI display */}
+      {/* MI sub-mode inputs */}
+      {showMiInputs && (
+        <div className="space-y-2">
+          {/* Salary / Hourly toggle */}
+          <div className="flex gap-1">
+            <button
+              onClick={() => setMiInputMode('salary')}
+              className={cn(
+                'px-2 py-0.5 text-xs rounded border transition-colors',
+                miInputMode === 'salary'
+                  ? 'bg-secondary text-secondary-foreground border-border'
+                  : 'bg-background border-border text-muted-foreground hover:text-foreground'
+              )}
+            >
+              Salary
+            </button>
+            <button
+              onClick={() => setMiInputMode('hourly')}
+              className={cn(
+                'px-2 py-0.5 text-xs rounded border transition-colors',
+                miInputMode === 'hourly'
+                  ? 'bg-secondary text-secondary-foreground border-border'
+                  : 'bg-background border-border text-muted-foreground hover:text-foreground'
+              )}
+            >
+              Hourly
+            </button>
+          </div>
+
+          {miInputMode === 'salary' ? (
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <Label className="text-xs">Gross Per Period ($)</Label>
+                <Input
+                  type="number"
+                  value={grossPerPeriod}
+                  onChange={e => setGrossPerPeriod(e.target.value)}
+                  placeholder="2100"
+                  className="h-8 text-xs"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Pay Frequency</Label>
+                <Select value={payFrequency} onValueChange={(v) => setPayFrequency(v as PayFrequency)}>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(Object.keys(FREQUENCY_LABELS) as PayFrequency[]).map(f => (
+                      <SelectItem key={f} value={f} className="text-xs">{FREQUENCY_LABELS[f]}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              {parseFloat(grossPerPeriod) > 0 && (
+                <p className="col-span-2 text-xs text-muted-foreground">
+                  ${parseFloat(grossPerPeriod).toLocaleString()} {FREQUENCY_LABELS[payFrequency].toLowerCase()} × {FREQUENCY_MULTIPLIERS[payFrequency]} = <span className="font-medium text-foreground">${computedResult?.toLocaleString()}/mo</span>
+                </p>
+              )}
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <Label className="text-xs">Hourly Rate ($)</Label>
+                <Input
+                  type="number"
+                  value={hourlyRate}
+                  onChange={e => setHourlyRate(e.target.value)}
+                  placeholder="18.50"
+                  className="h-8 text-xs"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Hours / Week</Label>
+                <Input
+                  type="number"
+                  value={hoursPerWeek}
+                  onChange={e => setHoursPerWeek(e.target.value)}
+                  placeholder="40"
+                  className="h-8 text-xs"
+                />
+              </div>
+              {parseFloat(hourlyRate) > 0 && parseFloat(hoursPerWeek) > 0 && (
+                <p className="col-span-2 text-xs text-muted-foreground">
+                  ${parseFloat(hourlyRate).toLocaleString()}/hr × {parseFloat(hoursPerWeek)} hrs/wk × 4.33 = <span className="font-medium text-foreground">${computedResult?.toLocaleString()}/mo</span>
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Stated income reference */}
       <div className="text-xs text-muted-foreground">
-        Base MI (from stubs): <span className="font-medium text-foreground">${baseMI.toLocaleString()}/mo</span>
+        Stated Income: <span className="font-medium text-foreground">${statedMonthlyIncome.toLocaleString()}/mo</span>
       </div>
 
       {/* YTD inputs */}
