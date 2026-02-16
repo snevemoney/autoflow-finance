@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { DroppableInput } from './DroppableInput';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
@@ -432,10 +433,12 @@ export function IncomeCalculator({
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1">
                 <Label className="text-xs">Gross Per Period ($)</Label>
-                <Input
+                <DroppableInput
+                  acceptField="grossPerPeriod"
                   type="number"
                   value={grossPerPeriod}
                   onChange={e => setGrossPerPeriod(e.target.value)}
+                  onDropValue={v => setGrossPerPeriod(v)}
                   placeholder="2100"
                   className="h-8 text-xs"
                 />
@@ -463,20 +466,24 @@ export function IncomeCalculator({
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1">
                 <Label className="text-xs">Hourly Rate ($)</Label>
-                <Input
+                <DroppableInput
+                  acceptField="hourlyRate"
                   type="number"
                   value={hourlyRate}
                   onChange={e => setHourlyRate(e.target.value)}
+                  onDropValue={v => setHourlyRate(v)}
                   placeholder="18.50"
                   className="h-8 text-xs"
                 />
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">Hours / Week</Label>
-                <Input
+                <DroppableInput
+                  acceptField="hoursPerWeek"
                   type="number"
                   value={hoursPerWeek}
                   onChange={e => setHoursPerWeek(e.target.value)}
+                  onDropValue={v => setHoursPerWeek(v)}
                   placeholder="40"
                   className="h-8 text-xs"
                 />
@@ -501,20 +508,24 @@ export function IncomeCalculator({
         <div className="grid grid-cols-2 gap-2">
           <div className="space-y-1">
             <Label className="text-xs">YTD Gross ($)</Label>
-            <Input
+            <DroppableInput
+              acceptField="ytdGross"
               type="number"
               value={ytdGross}
               onChange={e => setYtdGross(e.target.value)}
+              onDropValue={v => setYtdGross(v)}
               placeholder="25200"
               className="h-8 text-xs"
             />
           </div>
           <div className="space-y-1">
             <Label className="text-xs">Months Elapsed</Label>
-            <Input
+            <DroppableInput
+              acceptField="ytdMonths"
               type="number"
               value={ytdMonths}
               onChange={e => setYtdMonths(e.target.value)}
+              onDropValue={v => setYtdMonths(v)}
               placeholder="6"
               min="1"
               className="h-8 text-xs"
@@ -540,10 +551,12 @@ export function IncomeCalculator({
         <div className="space-y-2">
           <div className="space-y-1">
             <Label className="text-xs">Override Amount ($/mo)</Label>
-            <Input
+            <DroppableInput
+              acceptField="manualAmount"
               type="number"
               value={manualAmount}
               onChange={e => setManualAmount(e.target.value)}
+              onDropValue={v => setManualAmount(v)}
               placeholder="4500"
               className="h-8 text-xs"
             />

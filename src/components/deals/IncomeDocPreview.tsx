@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useQuery } from '@tanstack/react-query';
-import { FileText, Image, ChevronDown, ChevronUp, ExternalLink, File, Loader2 } from 'lucide-react';
+import { FileText, Image, ChevronDown, ChevronUp, ExternalLink, File, Loader2, GripVertical } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface IncomeDocument {
@@ -13,10 +13,58 @@ interface IncomeDocument {
   created_at: string;
 }
 
+interface ExtractedData {
+  id: string;
+  document_id: string;
+  gross_pay: number | null;
+  net_pay: number | null;
+  pay_frequency: string | null;
+  ytd_gross: number | null;
+  employer_name_on_doc: string | null;
+  confidence: string;
+}
+
 interface IncomeDocPreviewProps {
   dealId: string;
   sourceId: string;
 }
+
+interface DraggableChipProps {
+  label: string;
+  value: string;
+  field: string;
+}
+
+function DraggableChip({ label, value, field }: DraggableChipProps) {
+  const handleDragStart = (e: React.DragEvent) => {
+    const payload = JSON.stringify({ field, value, label });
+    e.dataTransfer.setData('application/x-income-field', payload);
+    e.dataTransfer.setData('text/plain', value);
+    e.dataTransfer.effectAllowed = 'copy';
+  };
+
+  return (
+    <span
+      draggable
+      onDragStart={handleDragStart}
+      className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium
+        bg-primary/10 text-primary border border-primary/20 cursor-grab active:cursor-grabbing
+        hover:bg-primary/20 hover:border-primary/30 transition-colors select-none"
+      title={`Drag "${label}: ${value}" into a calculator field`}
+    >
+      <GripVertical className="h-3 w-3 opacity-50 shrink-0" />
+      <span className="text-muted-foreground">{label}:</span>
+      <span className="font-semibold">{value}</span>
+    </span>
+  );
+}
+
+const FREQ_LABELS: Record<string, string> = {
+  weekly: 'Weekly',
+  biweekly: 'Biweekly',
+  semimonthly: 'Semimonthly',
+  monthly: 'Monthly',
+};
 
 export function IncomeDocPreview({ dealId, sourceId }: IncomeDocPreviewProps) {
   const [expanded, setExpanded] = useState(false);
@@ -49,12 +97,41 @@ export function IncomeDocPreview({ dealId, sourceId }: IncomeDocPreviewProps) {
     },
   });
 
+  // Fetch extracted data for this source's linked documents
+  const { data: extractions } = useQuery({
+    queryKey: ['income-extractions', sourceId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('extracted_income_data')
+        .select('id, document_id, gross_pay, net_pay, pay_frequency, ytd_gross, employer_name_on_doc, confidence')
+        .eq('income_source_id', sourceId);
+      if (error) throw error;
+      return (data ?? []) as ExtractedData[];
+    },
+  });
+
+  // Also fetch unlinked extractions for this deal
+  const { data: unlinkedExtractions } = useQuery({
+    queryKey: ['unlinked-extractions-for-drag', dealId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('extracted_income_data')
+        .select('id, document_id, gross_pay, net_pay, pay_frequency, ytd_gross, employer_name_on_doc, confidence')
+        .eq('deal_id', dealId)
+        .is('income_source_id', null);
+      if (error) throw error;
+      return (data ?? []) as ExtractedData[];
+    },
+  });
+
   if (!incomeDocs || incomeDocs.length === 0) return null;
 
   const linkedDocs = incomeDocs.filter(d => linkedDocIds?.includes(d.id));
   const otherDocs = incomeDocs.filter(d => !linkedDocIds?.includes(d.id));
   const allDocs = [...linkedDocs, ...otherDocs];
   const previewDoc = allDocs.find(d => d.id === previewDocId) ?? null;
+
+  const allExtractions = [...(extractions ?? []), ...(unlinkedExtractions ?? [])];
 
   const isImage = (name: string) => /\.(jpg|jpeg|png|gif|webp)$/i.test(name);
   const isPdf = (name: string) => /\.pdf$/i.test(name);
@@ -88,6 +165,33 @@ export function IncomeDocPreview({ dealId, sourceId }: IncomeDocPreviewProps) {
     setLoadingPreview(false);
   };
 
+  const getExtractionForDoc = (docId: string) => allExtractions.find(e => e.document_id === docId);
+
+  const renderExtractionChips = (extraction: ExtractedData) => {
+    const chips: { label: string; value: string; field: string }[] = [];
+    if (extraction.gross_pay != null) {
+      chips.push({ label: 'Gross', value: extraction.gross_pay.toString(), field: 'grossPerPeriod' });
+    }
+    if (extraction.net_pay != null) {
+      chips.push({ label: 'Net', value: extraction.net_pay.toString(), field: 'manualAmount' });
+    }
+    if (extraction.ytd_gross != null) {
+      chips.push({ label: 'YTD', value: extraction.ytd_gross.toString(), field: 'ytdGross' });
+    }
+    if (extraction.pay_frequency) {
+      chips.push({ label: 'Freq', value: extraction.pay_frequency, field: 'payFrequency' });
+    }
+    if (chips.length === 0) return null;
+
+    return (
+      <div className="flex flex-wrap gap-1 mt-1">
+        {chips.map(chip => (
+          <DraggableChip key={chip.field + extraction.id} {...chip} />
+        ))}
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-2 border-t border-border pt-2">
       <button
@@ -104,27 +208,43 @@ export function IncomeDocPreview({ dealId, sourceId }: IncomeDocPreviewProps) {
 
       {expanded && (
         <div className="space-y-2">
+          {/* Drag hint */}
+          {allExtractions.length > 0 && (
+            <p className="text-[10px] text-muted-foreground bg-muted/50 rounded px-2 py-1 flex items-center gap-1">
+              <GripVertical className="h-3 w-3" />
+              Drag extracted values into calculator fields above
+            </p>
+          )}
+
           <div className="space-y-1">
             {allDocs.map(doc => {
               const isLinked = linkedDocIds?.includes(doc.id);
+              const extraction = getExtractionForDoc(doc.id);
               return (
-                <button
-                  key={doc.id}
-                  onClick={() => handleDocClick(doc)}
-                  className={cn(
-                    'flex items-center gap-2 w-full text-left px-2 py-1.5 rounded-md text-xs transition-colors',
-                    previewDocId === doc.id
-                      ? 'bg-primary/10 border border-primary/20'
-                      : 'hover:bg-muted/50'
+                <div key={doc.id}>
+                  <button
+                    onClick={() => handleDocClick(doc)}
+                    className={cn(
+                      'flex items-center gap-2 w-full text-left px-2 py-1.5 rounded-md text-xs transition-colors',
+                      previewDocId === doc.id
+                        ? 'bg-primary/10 border border-primary/20'
+                        : 'hover:bg-muted/50'
+                    )}
+                  >
+                    {getIcon(doc.name)}
+                    <span className="flex-1 truncate">{doc.name}</span>
+                    {isLinked && (
+                      <span className="text-[10px] text-success bg-success/10 px-1.5 py-0.5 rounded">linked</span>
+                    )}
+                    <ExternalLink className="h-3 w-3 text-muted-foreground shrink-0" />
+                  </button>
+                  {/* Draggable extracted values */}
+                  {extraction && (
+                    <div className="pl-6 pb-1">
+                      {renderExtractionChips(extraction)}
+                    </div>
                   )}
-                >
-                  {getIcon(doc.name)}
-                  <span className="flex-1 truncate">{doc.name}</span>
-                  {isLinked && (
-                    <span className="text-[10px] text-success bg-success/10 px-1.5 py-0.5 rounded">linked</span>
-                  )}
-                  <ExternalLink className="h-3 w-3 text-muted-foreground shrink-0" />
-                </button>
+                </div>
               );
             })}
           </div>
