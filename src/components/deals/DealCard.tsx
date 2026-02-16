@@ -1,16 +1,23 @@
 import { Deal, DEAL_STATUS_CONFIG } from '@/types/deal';
 import { cn } from '@/lib/utils';
 import { formatDistanceToNow } from 'date-fns';
-import { AlertCircle, Clock, FileText, User } from 'lucide-react';
+import { AlertCircle, Clock, FileText, Gavel, User } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+
+export interface DebtSummary {
+  totalMonthlyDebts: number;
+  hasGarnishments: boolean;
+  dti: number | null;
+}
 
 interface DealCardProps {
   deal: Deal;
   compact?: boolean;
   dragging?: boolean;
+  debtSummary?: DebtSummary;
 }
 
-export function DealCard({ deal, compact = false, dragging = false }: DealCardProps) {
+export function DealCard({ deal, compact = false, dragging = false, debtSummary }: DealCardProps) {
   const navigate = useNavigate();
   const statusConfig = DEAL_STATUS_CONFIG[deal.status];
 
@@ -93,6 +100,23 @@ export function DealCard({ deal, compact = false, dragging = false }: DealCardPr
           <span className="text-xs text-muted-foreground capitalize">
             ({deal.creditInfo.tier.replace('_', ' ')})
           </span>
+        </div>
+      )}
+
+      {/* Debt Risk Badges */}
+      {(debtSummary?.dti != null && debtSummary.dti > 45 || debtSummary?.hasGarnishments) && (
+        <div className="flex flex-wrap gap-1 mb-3">
+          {debtSummary?.dti != null && debtSummary.dti > 45 && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-destructive/10 text-destructive font-medium">
+              DTI: {Math.round(debtSummary.dti)}%
+            </span>
+          )}
+          {debtSummary?.hasGarnishments && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-warning/10 text-warning font-medium">
+              <Gavel className="h-3 w-3" />
+              Garnishment
+            </span>
+          )}
         </div>
       )}
 
