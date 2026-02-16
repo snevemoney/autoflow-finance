@@ -3,15 +3,17 @@ import { Zap, AlertTriangle, CheckCircle2, XCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { Deal } from '@/types/deal';
 import type { IncomeSource } from '@/components/deals/IncomeSourceCard';
+import type { ApplicantDebt } from '@/components/deals/ApplicantDebtsCard';
 
 interface DealSummaryCardProps {
   deal: Deal;
   incomeSources?: IncomeSource[];
+  debts?: ApplicantDebt[];
 }
 
 type RiskLevel = 'low' | 'moderate' | 'high';
 
-function computeRisk(deal: DealSummaryCardProps['deal'], incomeSources?: IncomeSource[]): { level: RiskLevel; score: number; concerns: string[] } {
+function computeRisk(deal: DealSummaryCardProps['deal'], incomeSources?: IncomeSource[], debts?: ApplicantDebt[]): { level: RiskLevel; score: number; concerns: string[] } {
   let score = 0;
   const concerns: string[] = [];
 
@@ -59,12 +61,26 @@ function computeRisk(deal: DealSummaryCardProps['deal'], incomeSources?: IncomeS
     concerns.push('Low document verification rate');
   }
 
+  // Debt obligations
+  if (debts && debts.length > 0) {
+    const totalDebtPayments = debts.reduce((s, d) => s + d.monthly_payment, 0);
+    const payment = deal.financingTerms.monthlyPayment;
+    if (monthlyIncome > 0) {
+      const dti = ((payment + totalDebtPayments) / monthlyIncome) * 100;
+      if (dti > 45) { score += 20; concerns.push(`High DTI (${dti.toFixed(0)}%)`); }
+    }
+    const hasGarnishments = debts.some(d => d.debt_type === 'garnishment');
+    if (hasGarnishments) { score += 10; concerns.push('Active garnishment(s)'); }
+    const courtOrdered = debts.filter(d => d.is_court_ordered).length;
+    if (courtOrdered > 0) { score += 5; concerns.push(`${courtOrdered} court-ordered debt(s)`); }
+  }
+
   const level: RiskLevel = score <= 20 ? 'low' : score <= 45 ? 'moderate' : 'high';
   return { level, score: Math.min(score, 100), concerns };
 }
 
-export function DealSummaryCard({ deal, incomeSources }: DealSummaryCardProps) {
-  const risk = computeRisk(deal, incomeSources);
+export function DealSummaryCard({ deal, incomeSources, debts }: DealSummaryCardProps) {
+  const risk = computeRisk(deal, incomeSources, debts);
 
   let monthlyIncome: number;
   if (incomeSources && incomeSources.length > 0) {

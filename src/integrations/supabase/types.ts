@@ -14,6 +14,66 @@ export type Database = {
   }
   public: {
     Tables: {
+      applicant_debts: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          creditor_name: string
+          customer_id: string
+          deal_id: string
+          debt_type: Database["public"]["Enums"]["debt_type"]
+          id: string
+          is_court_ordered: boolean
+          monthly_payment: number
+          months_remaining: number | null
+          notes: string | null
+          total_balance: number | null
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          creditor_name: string
+          customer_id: string
+          deal_id: string
+          debt_type: Database["public"]["Enums"]["debt_type"]
+          id?: string
+          is_court_ordered?: boolean
+          monthly_payment: number
+          months_remaining?: number | null
+          notes?: string | null
+          total_balance?: number | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          creditor_name?: string
+          customer_id?: string
+          deal_id?: string
+          debt_type?: Database["public"]["Enums"]["debt_type"]
+          id?: string
+          is_court_ordered?: boolean
+          monthly_payment?: number
+          months_remaining?: number | null
+          notes?: string | null
+          total_balance?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "applicant_debts_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "applicant_debts_deal_id_fkey"
+            columns: ["deal_id"]
+            isOneToOne: false
+            referencedRelation: "deals"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       customers: {
         Row: {
           city: string | null
@@ -763,6 +823,15 @@ export type Database = {
         | "declined"
         | "incomplete"
       dealer_status: "active" | "suspended" | "pending"
+      debt_type:
+        | "garnishment"
+        | "child_support"
+        | "auto_loan"
+        | "student_loan"
+        | "credit_card"
+        | "mortgage"
+        | "medical"
+        | "other"
       department: "credit" | "income" | "funding" | "admin"
       document_status: "pending" | "verified" | "rejected"
       document_type:
@@ -948,6 +1017,16 @@ export const Constants = {
         "incomplete",
       ],
       dealer_status: ["active", "suspended", "pending"],
+      debt_type: [
+        "garnishment",
+        "child_support",
+        "auto_loan",
+        "student_loan",
+        "credit_card",
+        "mortgage",
+        "medical",
+        "other",
+      ],
       department: ["credit", "income", "funding", "admin"],
       document_status: ["pending", "verified", "rejected"],
       document_type: [

@@ -7,8 +7,10 @@ import { DocumentViewer } from '@/components/deals/DocumentViewer';
 import { DealSummaryCard } from '@/components/deals/DealSummaryCard';
 import { IncomeVerificationCard } from '@/components/deals/IncomeVerificationCard';
 import { EmployerVerificationCard } from '@/components/deals/EmployerVerificationCard';
+import { ApplicantDebtsCard } from '@/components/deals/ApplicantDebtsCard';
 import { ExtractedDataBadge, type ExtractedData } from '@/components/deals/ExtractedDataBadge';
 import type { IncomeSource } from '@/components/deals/IncomeSourceCard';
+import type { ApplicantDebt } from '@/components/deals/ApplicantDebtsCard';
 import { getDealById } from '@/data/mockData';
 import { supabase } from '@/integrations/supabase/client';
 import { useQuery } from '@tanstack/react-query';
@@ -78,6 +80,21 @@ export default function DealDetail() {
         .eq('deal_id', deal.id);
       if (error) throw error;
       return (data ?? []) as IncomeSource[];
+    },
+    enabled: !!deal,
+  });
+
+  // Fetch applicant debts for risk computation
+  const { data: applicantDebts } = useQuery({
+    queryKey: ['applicant-debts', deal?.id],
+    queryFn: async () => {
+      if (!deal) return [];
+      const { data, error } = await supabase
+        .from('applicant_debts')
+        .select('*')
+        .eq('deal_id', deal.id);
+      if (error) throw error;
+      return (data ?? []) as ApplicantDebt[];
     },
     enabled: !!deal,
   });
@@ -487,10 +504,13 @@ export default function DealDetail() {
           {/* Sidebar */}
           <div className="space-y-6">
             {/* Deal Summary */}
-            <DealSummaryCard deal={deal} incomeSources={incomeSources} />
+            <DealSummaryCard deal={deal} incomeSources={incomeSources} debts={applicantDebts} />
 
             {/* Income Verification */}
             <IncomeVerificationCard deal={deal} />
+
+            {/* Applicant Debts */}
+            <ApplicantDebtsCard dealId={deal.id} customerId={deal.customer.id} />
 
             {/* Employer Verification */}
             {deal.customer.employmentInfo && (

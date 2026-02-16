@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { IncomeSourceCard, type IncomeSource } from './IncomeSourceCard';
 import { AddIncomeSourceDialog } from './AddIncomeSourceDialog';
 import { UnmatchedExtractionRow } from './UnmatchedExtractionRow';
+import type { ApplicantDebt } from './ApplicantDebtsCard';
 
 interface IncomeVerificationCardProps {
   deal: Deal;
@@ -54,6 +55,18 @@ function findMatchingSource(extraction: ExtractedIncome, sources: IncomeSource[]
 }
 
 export function IncomeVerificationCard({ deal }: IncomeVerificationCardProps) {
+  // Query applicant debts for DTI calculation
+  const { data: debts = [] } = useQuery({
+    queryKey: ['applicant-debts', deal.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('applicant_debts')
+        .select('*')
+        .eq('deal_id', deal.id);
+      if (error) throw error;
+      return (data ?? []) as ApplicantDebt[];
+    },
+  });
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const matchedRef = useRef<Set<string>>(new Set());
 
@@ -236,6 +249,31 @@ export function IncomeVerificationCard({ deal }: IncomeVerificationCardProps) {
               </span>
             </div>
           </div>
+
+          {/* DTI (including debts) */}
+          {debts.length > 0 && (() => {
+            const totalDebtPayments = debts.reduce((s, d) => s + d.monthly_payment, 0);
+            const dti = totalCalculated > 0
+              ? (((monthlyPayment + totalDebtPayments) / totalCalculated) * 100).toFixed(1)
+              : 'N/A';
+            const dtiHealthy = typeof dti === 'string' ? false : parseFloat(dti) <= 45;
+            return (
+              <div className={cn(
+                'p-3 rounded-lg border text-sm',
+                dtiHealthy ? 'bg-success/5 border-success/20' : 'bg-destructive/5 border-destructive/20'
+              )}>
+                <div className="flex justify-between items-center">
+                  <span className="text-muted-foreground">DTI (Payment + Debts / Income)</span>
+                  <span className={cn('font-bold', dtiHealthy ? 'text-success' : 'text-destructive')}>
+                    {dti}%
+                  </span>
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  ${monthlyPayment.toLocaleString()} payment + ${totalDebtPayments.toLocaleString()} debts
+                </p>
+              </div>
+            );
+          })()}
 
           {/* OCR linkage summary */}
           {(linkedCount > 0 || unlinkedCount > 0) && (
