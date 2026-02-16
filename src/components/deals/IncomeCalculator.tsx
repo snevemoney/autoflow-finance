@@ -97,9 +97,9 @@ export function IncomeCalculator({
 
   const fillField = useCallback((field: string, value: string) => {
     switch (field) {
-      case 'grossPerPeriod': setGrossPerPeriod(value); break;
-      case 'hourlyRate': setHourlyRate(value); break;
-      case 'hoursPerWeek': setHoursPerWeek(value); break;
+      case 'grossPerPeriod': setGrossPerPeriod(value); setMethod('mi'); break;
+      case 'hourlyRate': setHourlyRate(value); setMethod('mi'); break;
+      case 'hoursPerWeek': setHoursPerWeek(value); setMethod('mi'); break;
       case 'ytdGross': setYtdGross(value); setMethod('ytd'); break;
       case 'manualAmount': setManualAmount(value); setMethod('manual'); break;
       case 'payFrequency': setPayFrequency(value as PayFrequency); break;
@@ -109,6 +109,12 @@ export function IncomeCalculator({
   useEffect(() => {
     onFillFieldReady?.(fillField);
   }, [fillField, onFillFieldReady]);
+
+  const handleDropFieldMethod = useCallback((field: string) => {
+    if (field === 'grossPerPeriod' || field === 'hourlyRate' || field === 'hoursPerWeek') setMethod('mi');
+    else if (field === 'ytdGross') setMethod('ytd');
+    else if (field === 'manualAmount') setMethod('manual');
+  }, []);
 
   const isBenefitType = sourceType === 'government_assistance' || sourceType === 'unemployed';
   const baseMI = calculatedMonthlyIncome ?? statedMonthlyIncome;
@@ -456,6 +462,7 @@ export function IncomeCalculator({
                   value={grossPerPeriod}
                   onChange={e => setGrossPerPeriod(e.target.value)}
                   onDropValue={v => setGrossPerPeriod(v)}
+                  onDropField={handleDropFieldMethod}
                   placeholder="2100"
                   className="h-8 text-xs"
                 />
@@ -489,6 +496,7 @@ export function IncomeCalculator({
                   value={hourlyRate}
                   onChange={e => setHourlyRate(e.target.value)}
                   onDropValue={v => setHourlyRate(v)}
+                  onDropField={handleDropFieldMethod}
                   placeholder="18.50"
                   className="h-8 text-xs"
                 />
@@ -501,6 +509,7 @@ export function IncomeCalculator({
                   value={hoursPerWeek}
                   onChange={e => setHoursPerWeek(e.target.value)}
                   onDropValue={v => setHoursPerWeek(v)}
+                  onDropField={handleDropFieldMethod}
                   placeholder="40"
                   className="h-8 text-xs"
                 />
@@ -531,6 +540,7 @@ export function IncomeCalculator({
               value={ytdGross}
               onChange={e => setYtdGross(e.target.value)}
               onDropValue={v => setYtdGross(v)}
+              onDropField={handleDropFieldMethod}
               placeholder="25200"
               className="h-8 text-xs"
             />
@@ -543,6 +553,7 @@ export function IncomeCalculator({
               value={ytdMonths}
               onChange={e => setYtdMonths(e.target.value)}
               onDropValue={v => setYtdMonths(v)}
+              onDropField={handleDropFieldMethod}
               placeholder="6"
               min="1"
               className="h-8 text-xs"
@@ -574,6 +585,7 @@ export function IncomeCalculator({
               value={manualAmount}
               onChange={e => setManualAmount(e.target.value)}
               onDropValue={v => setManualAmount(v)}
+              onDropField={handleDropFieldMethod}
               placeholder="4500"
               className="h-8 text-xs"
             />
