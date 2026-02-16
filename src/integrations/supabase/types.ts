@@ -832,6 +832,7 @@ export type Database = {
         | "mortgage"
         | "medical"
         | "other"
+        | "rent"
       department: "credit" | "income" | "funding" | "admin"
       document_status: "pending" | "verified" | "rejected"
       document_type:
@@ -1026,6 +1027,7 @@ export const Constants = {
         "mortgage",
         "medical",
         "other",
+        "rent",
       ],
       department: ["credit", "income", "funding", "admin"],
       document_status: ["pending", "verified", "rejected"],
