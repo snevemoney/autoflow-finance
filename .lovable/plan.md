@@ -1,94 +1,82 @@
 
 
-## Enhance Income Calculator with Manual Input Fields
+## Add Applicant Debts (Garnishments and Other Obligations)
 
-### What Changes
+This feature adds tracking of garnishments, child support, and other debt obligations to the deal, displayed on both the income verification and credit review sections. This gives analysts a complete picture of the applicant's financial obligations.
 
-Modify `src/components/deals/IncomeCalculator.tsx` to let the analyst manually input numbers for MI calculation instead of just showing a pre-calculated base value. Three input modes for MI:
+---
 
-**1. Salary/Gross Per Period mode:**
-- Gross Pay Per Period (dollar amount from pay stub)
-- Pay Frequency selector (weekly, biweekly, semimonthly, monthly)
-- Auto-calculates: gross x frequency multiplier = monthly income
-- Shows breakdown: "$2,100 biweekly x 2.17 = $4,557/mo"
+### What Gets Built
 
-**2. Hourly Rate mode:**
-- Hourly Rate input
-- Hours Per Week input
-- Auto-calculates: rate x hours x 4.33 = monthly income
-- Shows breakdown: "$18.50/hr x 32 hrs/wk x 4.33 = $2,561/mo"
+1. **New `applicant_debts` database table** to store debts per deal/customer
+2. **New `ApplicantDebtsCard` component** showing all debts with add/edit/delete
+3. **Integration into the Deal Detail sidebar** (visible on both income and credit views)
+4. **Updated PTI (Payment-to-Income) and risk calculations** to factor in existing debts (DTI - Debt-to-Income ratio)
 
-**3. YTD mode (already exists, no changes needed)**
+---
 
-### Frequency Multipliers
+### Database
 
-| Frequency | Multiplier |
-|-----------|-----------|
-| Weekly | 4.33 |
-| Biweekly | 2.17 |
-| Semimonthly | 2.00 |
-| Monthly | 1.00 |
+A new `applicant_debts` table:
 
-### Hourly Formula
+| Column | Type | Notes |
+|--------|------|-------|
+| id | uuid (PK) | auto-generated |
+| deal_id | uuid (FK) | references deals |
+| customer_id | uuid (FK) | references customers |
+| debt_type | enum | `garnishment`, `child_support`, `auto_loan`, `student_loan`, `credit_card`, `mortgage`, `medical`, `other` |
+| creditor_name | text | e.g. "IRS", "State of TX" |
+| monthly_payment | numeric | required |
+| total_balance | numeric | nullable |
+| months_remaining | integer | nullable |
+| is_court_ordered | boolean | default false (true for garnishments/child support) |
+| notes | text | nullable |
+| created_at | timestamptz | default now() |
+| created_by | uuid | nullable, references auth.users |
 
-```text
-Monthly = hourlyRate x hoursPerWeek x 4.33
-```
+RLS policies: authenticated users can view, insert, and update; admins can delete.
 
-### UI Flow
+---
 
-When MI mode is selected, the analyst sees a sub-toggle to pick "Salary" or "Hourly":
-- **Salary**: Shows Gross Per Period + Pay Frequency dropdown
-- **Hourly**: Shows Hourly Rate + Hours Per Week inputs
+### New Component: `ApplicantDebtsCard`
 
-Both show a live calculation breakdown and the computed monthly result.
+A card component placed in the Deal Detail sidebar (between Income Verification and Credit Info cards) that:
 
-### After Apply -- Auto Variance Check
+- Queries `applicant_debts` for the deal
+- Shows a summary: total monthly obligations, number of debts, any court-ordered items
+- Lists each debt with type badge, creditor, monthly payment
+- "Add Debt" button opens an inline form with fields for type, creditor, monthly payment, balance, court-ordered toggle
+- Inline delete for individual debts
 
-When the analyst clicks "Apply Calculation", the system:
-1. Saves the calculated monthly income
-2. Compares calculated vs stated income
-3. If variance exceeds 15%, auto-adds a flag reason to `flag_reasons`
-4. Shows a toast with the result
+---
 
-### Database Columns (all already exist)
+### Updated Calculations
 
-- `income_sources.hourly_rate` -- stores hourly rate
-- `income_sources.hours_per_week` -- stores hours/week
-- `income_sources.pay_frequency` -- stores frequency
-- `income_sources.calculated_monthly_income` -- stores result
-- `income_sources.flag_reasons` -- stores auto-detected flags
+**IncomeVerificationCard**: The PTI section will show an enhanced "DTI" (Debt-to-Income) ratio that includes:
+- Proposed car payment + total existing monthly debts / total income
 
-No database migration needed.
+**DealSummaryCard**: The risk computation will factor in total debt obligations:
+- DTI > 45% adds risk score + concern
+- Any garnishments add risk score + concern
+- Court-ordered debts flagged as concern
+
+**CreditQueue stats**: Add a new stat showing average DTI across queued deals.
+
+---
 
 ### Technical Details
 
-**New state variables in IncomeCalculator:**
-- `grossPerPeriod` (string) -- gross pay from stub
-- `payFrequency` (string: weekly/biweekly/semimonthly/monthly)
-- `hourlyRate` (string)
-- `hoursPerWeek` (string)
-- `miInputMode` ('salary' | 'hourly') -- sub-toggle within MI mode
+**Files to create:**
+- `src/components/deals/ApplicantDebtsCard.tsx` -- main card with list, add form, and summary
 
-**New props on IncomeCalculator:**
-- `currentHourlyRate: number | null`
-- `currentHoursPerWeek: number | null`
-- `currentPayFrequency: string | null`
+**Files to modify:**
+- `src/pages/DealDetail.tsx` -- add `ApplicantDebtsCard` to the sidebar
+- `src/components/deals/IncomeVerificationCard.tsx` -- show combined DTI (car payment + debts / income)
+- `src/components/deals/DealSummaryCard.tsx` -- factor debts into risk score
+- `src/pages/CreditQueue.tsx` -- optionally surface debt flags on deal cards
+- `src/types/deal.ts` -- add debt type definitions
 
-These are already available on the `IncomeSource` interface and just need to be passed through from `IncomeSourceCard.tsx`.
-
-**Updated `computedResult` for MI mode:**
-- If `miInputMode === 'salary'`: `grossPerPeriod x frequencyMultiplier`
-- If `miInputMode === 'hourly'`: `hourlyRate x hoursPerWeek x 4.33`
-
-**Updated `handleApply`:**
-- Saves `pay_frequency`, `hourly_rate`, `hours_per_week` to the income source
-- After saving, checks variance: `|calculated - stated| / stated > 0.15` and appends "Income variance > 15%" to `flag_reasons` if not already present
-
-### Files Changed
-
-| Action | File |
-|--------|------|
-| Modify | `src/components/deals/IncomeCalculator.tsx` -- add MI input fields (salary + hourly), variance check |
-| Modify | `src/components/deals/IncomeSourceCard.tsx` -- pass new props (hourlyRate, hoursPerWeek, payFrequency) |
+**Database migration:**
+- Create `applicant_debts` table with RLS policies
+- Create `debt_type` enum
 
