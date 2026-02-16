@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { AppHeader } from '@/components/layout/AppHeader';
 import { StatusBadge } from '@/components/deals/StatusBadge';
-import { mockDeals } from '@/data/mockData';
-import { Deal, DealStatus, DEAL_STATUS_CONFIG } from '@/types/deal';
+import { useDeals } from '@/hooks/use-deals';
+import { DealStatus, DEAL_STATUS_CONFIG } from '@/types/deal';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -14,14 +14,15 @@ import {
 } from '@/components/ui/select';
 import { useNavigate } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
-import { Search, Filter, Download, SlidersHorizontal } from 'lucide-react';
+import { Search, Filter, Download, SlidersHorizontal, Loader2 } from 'lucide-react';
 
 export default function DealsList() {
   const navigate = useNavigate();
+  const { data: deals = [], isLoading } = useDeals();
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<DealStatus | 'all'>('all');
 
-  const filteredDeals = mockDeals.filter((deal) => {
+  const filteredDeals = deals.filter((deal) => {
     const matchesSearch =
       deal.dealNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
       `${deal.customer.firstName} ${deal.customer.lastName}`
@@ -95,68 +96,74 @@ export default function DealsList() {
 
         {/* Table */}
         <div className="flex-1 overflow-auto p-6">
-          <div className="rounded-lg border overflow-hidden">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Deal #</th>
-                  <th>Customer</th>
-                  <th>Vehicle</th>
-                  <th>Loan Amount</th>
-                  <th>Credit Score</th>
-                  <th>LTV</th>
-                  <th>Dealer</th>
-                  <th>Status</th>
-                  <th>Submitted</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredDeals.map((deal) => (
-                  <tr
-                    key={deal.id}
-                    onClick={() => navigate(`/deals/${deal.id}`)}
-                    className="cursor-pointer"
-                  >
-                    <td className="font-mono text-sm">{deal.dealNumber}</td>
-                    <td>
-                      <p className="font-medium">
-                        {deal.customer.firstName} {deal.customer.lastName}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {deal.customer.email}
-                      </p>
-                    </td>
-                    <td>
-                      <p className="text-sm">
-                        {deal.vehicle.year} {deal.vehicle.make} {deal.vehicle.model}
-                      </p>
-                      <p className="text-xs text-muted-foreground font-mono">
-                        {deal.vehicle.vin}
-                      </p>
-                    </td>
-                    <td className="font-medium">
-                      ${deal.financingTerms.loanAmount.toLocaleString()}
-                    </td>
-                    <td>
-                      <span className={getCreditScoreColor(deal.creditInfo?.score)}>
-                        {deal.creditInfo?.score || '-'}
-                      </span>
-                    </td>
-                    <td>{deal.ltv}%</td>
-                    <td className="text-sm">{deal.dealerName}</td>
-                    <td>
-                      <StatusBadge status={deal.status} size="sm" />
-                    </td>
-                    <td className="text-sm text-muted-foreground">
-                      {formatDistanceToNow(new Date(deal.createdAt), {
-                        addSuffix: true,
-                      })}
-                    </td>
+          {isLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            </div>
+          ) : (
+            <div className="rounded-lg border overflow-hidden">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Deal #</th>
+                    <th>Customer</th>
+                    <th>Vehicle</th>
+                    <th>Loan Amount</th>
+                    <th>Credit Score</th>
+                    <th>LTV</th>
+                    <th>Dealer</th>
+                    <th>Status</th>
+                    <th>Submitted</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {filteredDeals.map((deal) => (
+                    <tr
+                      key={deal.id}
+                      onClick={() => navigate(`/deals/${deal.id}`)}
+                      className="cursor-pointer"
+                    >
+                      <td className="font-mono text-sm">{deal.dealNumber}</td>
+                      <td>
+                        <p className="font-medium">
+                          {deal.customer.firstName} {deal.customer.lastName}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {deal.customer.email}
+                        </p>
+                      </td>
+                      <td>
+                        <p className="text-sm">
+                          {deal.vehicle.year} {deal.vehicle.make} {deal.vehicle.model}
+                        </p>
+                        <p className="text-xs text-muted-foreground font-mono">
+                          {deal.vehicle.vin}
+                        </p>
+                      </td>
+                      <td className="font-medium">
+                        ${deal.financingTerms.loanAmount.toLocaleString()}
+                      </td>
+                      <td>
+                        <span className={getCreditScoreColor(deal.creditInfo?.score)}>
+                          {deal.creditInfo?.score || '-'}
+                        </span>
+                      </td>
+                      <td>{deal.ltv}%</td>
+                      <td className="text-sm">{deal.dealerName}</td>
+                      <td>
+                        <StatusBadge status={deal.status} size="sm" />
+                      </td>
+                      <td className="text-sm text-muted-foreground">
+                        {formatDistanceToNow(new Date(deal.createdAt), {
+                          addSuffix: true,
+                        })}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       </div>
     </div>
