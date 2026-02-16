@@ -8,10 +8,12 @@ interface DroppableInputProps extends React.ComponentProps<'input'> {
   acceptField: string;
   /** Called when a value is dropped */
   onDropValue?: (value: string) => void;
+  /** Called with the dropped field name so the parent can auto-switch calc method */
+  onDropField?: (field: string) => void;
 }
 
 export const DroppableInput = React.forwardRef<HTMLInputElement, DroppableInputProps>(
-  ({ acceptField, onDropValue, className, onChange, ...props }, ref) => {
+  ({ acceptField, onDropValue, onDropField, className, onChange, ...props }, ref) => {
     const [dragOver, setDragOver] = useState(false);
 
     const handleDragOver = (e: React.DragEvent) => {
@@ -33,6 +35,7 @@ export const DroppableInput = React.forwardRef<HTMLInputElement, DroppableInputP
         const payload = JSON.parse(raw) as { field: string; value: string; label: string };
         // Accept any numeric value drop onto numeric fields
         if (payload.value) {
+          onDropField?.(payload.field);
           onDropValue?.(payload.value);
           // Also fire onChange for React-controlled inputs
           const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
