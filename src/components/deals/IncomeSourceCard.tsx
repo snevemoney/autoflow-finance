@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { AlertTriangle, CheckCircle2, Clock, FileWarning, Briefcase, GraduationCap, Hammer, Wrench, Leaf, Timer, UserX, Heart, Shield, FileSearch, ChevronDown, ChevronUp, Calculator, ClipboardCheck } from 'lucide-react';
@@ -87,6 +87,11 @@ interface IncomeSourceCardProps {
 
 export function IncomeSourceCard({ source, linkedExtractions, onUpdated }: IncomeSourceCardProps) {
   const [calcOpen, setCalcOpen] = useState(false);
+  const [fillHandler, setFillHandler] = useState<((field: string, value: string) => void) | null>(null);
+
+  const handleFillFieldReady = useCallback((handler: (field: string, value: string) => void) => {
+    setFillHandler(() => handler);
+  }, []);
   const typeConfig = SOURCE_TYPE_CONFIG[source.source_type];
   const statusConfig = STATUS_CONFIG[source.verification_status];
   const TypeIcon = typeConfig.icon;
@@ -228,8 +233,9 @@ export function IncomeSourceCard({ source, linkedExtractions, onUpdated }: Incom
                   additionalDocsRequested={source.additional_docs_requested ?? []}
                   vehicleForWork={(source as any).vehicle_for_work ?? false}
                   onUpdated={onUpdated}
+                  onFillFieldReady={handleFillFieldReady}
                 />
-                <IncomeDocPreview dealId={source.deal_id} sourceId={source.id} />
+                <IncomeDocPreview dealId={source.deal_id} sourceId={source.id} onClickFill={fillHandler ?? undefined} />
               </div>
             )}
           </div>

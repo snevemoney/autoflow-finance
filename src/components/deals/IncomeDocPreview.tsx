@@ -27,15 +27,17 @@ interface ExtractedData {
 interface IncomeDocPreviewProps {
   dealId: string;
   sourceId: string;
+  onClickFill?: (field: string, value: string) => void;
 }
 
 interface DraggableChipProps {
   label: string;
   value: string;
   field: string;
+  onClickFill?: (field: string, value: string) => void;
 }
 
-function DraggableChip({ label, value, field }: DraggableChipProps) {
+function DraggableChip({ label, value, field, onClickFill }: DraggableChipProps) {
   const handleDragStart = (e: React.DragEvent) => {
     const payload = JSON.stringify({ field, value, label });
     e.dataTransfer.setData('application/x-income-field', payload);
@@ -47,10 +49,14 @@ function DraggableChip({ label, value, field }: DraggableChipProps) {
     <span
       draggable
       onDragStart={handleDragStart}
-      className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium
-        bg-primary/10 text-primary border border-primary/20 cursor-grab active:cursor-grabbing
-        hover:bg-primary/20 hover:border-primary/30 transition-colors select-none"
-      title={`Drag "${label}: ${value}" into a calculator field`}
+      onClick={() => onClickFill?.(field, value)}
+      className={cn(
+        "inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium",
+        "bg-primary/10 text-primary border border-primary/20 cursor-grab active:cursor-grabbing",
+        "hover:bg-primary/20 hover:border-primary/30 transition-colors select-none",
+        onClickFill && "cursor-pointer"
+      )}
+      title={`${onClickFill ? 'Click or drag' : 'Drag'} "${label}: ${value}" into a calculator field`}
     >
       <GripVertical className="h-3 w-3 opacity-50 shrink-0" />
       <span className="text-muted-foreground">{label}:</span>
@@ -66,7 +72,7 @@ const FREQ_LABELS: Record<string, string> = {
   monthly: 'Monthly',
 };
 
-export function IncomeDocPreview({ dealId, sourceId }: IncomeDocPreviewProps) {
+export function IncomeDocPreview({ dealId, sourceId, onClickFill }: IncomeDocPreviewProps) {
   const [expanded, setExpanded] = useState(false);
   const [previewDocId, setPreviewDocId] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -186,7 +192,7 @@ export function IncomeDocPreview({ dealId, sourceId }: IncomeDocPreviewProps) {
     return (
       <div className="flex flex-wrap gap-1 mt-1">
         {chips.map(chip => (
-          <DraggableChip key={chip.field + extraction.id} {...chip} />
+          <DraggableChip key={chip.field + extraction.id} {...chip} onClickFill={onClickFill} />
         ))}
       </div>
     );
@@ -212,7 +218,7 @@ export function IncomeDocPreview({ dealId, sourceId }: IncomeDocPreviewProps) {
           {allExtractions.length > 0 && (
             <p className="text-[10px] text-muted-foreground bg-muted/50 rounded px-2 py-1 flex items-center gap-1">
               <GripVertical className="h-3 w-3" />
-              Drag extracted values into calculator fields above
+              {onClickFill ? 'Click or drag extracted values into calculator fields above' : 'Drag extracted values into calculator fields above'}
             </p>
           )}
 
