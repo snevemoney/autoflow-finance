@@ -210,6 +210,7 @@ export function IncomeSourceCard({ source, linkedExtractions, onUpdated }: Incom
               <div className="mt-2">
                 <IncomeCalculator
                   sourceId={source.id}
+                  dealId={source.deal_id}
                   sourceType={source.source_type}
                   statedMonthlyIncome={source.stated_monthly_income}
                   calculatedMonthlyIncome={source.calculated_monthly_income}
