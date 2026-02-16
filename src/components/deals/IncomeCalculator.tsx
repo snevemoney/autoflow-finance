@@ -47,6 +47,8 @@ interface IncomeCalculatorProps {
   missedDaysFlag: boolean;
   additionalDocsRequested: string[];
   vehicleForWork: boolean;
+  contractMonths?: number | null;
+  sourceCreatedAt?: string | null;
   onUpdated: () => void;
   onFillFieldReady?: (handler: (field: string, value: string) => void) => void;
 }
@@ -77,6 +79,8 @@ export function IncomeCalculator({
   missedDaysFlag,
   additionalDocsRequested,
   vehicleForWork,
+  contractMonths: contractMonthsProp,
+  sourceCreatedAt,
   onUpdated,
   onFillFieldReady,
 }: IncomeCalculatorProps) {
@@ -628,7 +632,52 @@ export function IncomeCalculator({
           const pct = avg > 0 ? Math.round((diff / avg) * 100) : 0;
           const isOk = pct <= 10;
           const isWarn = pct > 10 && pct <= 20;
-          // pct > 20 = error
+          const miHigher = miValue > ytdValue;
+
+          // Build smart diagnosis reasons based on deal context
+          const reasons: string[] = [];
+          if (!isOk) {
+            // Seasonal employment
+            if (sourceType === 'seasonal') {
+              reasons.push(miHigher
+                ? 'Seasonal worker — YTD may include off-season months with reduced or zero pay, pulling the average down.'
+                : 'Seasonal worker — current pay stub may be from an off-season period; YTD includes peak-season earnings.');
+            }
+            // Education / contract-based
+            if (sourceType === 'education') {
+              const cm = contractMonthsProp;
+              if (cm && cm < 12) {
+                reasons.push(`Education employee on a ${cm}-month contract. YTD divides annual earnings by ${ytdM} calendar months, but pay may only cover ${cm} working months.`);
+              } else {
+                reasons.push('Education employee — check if YTD months align with the academic calendar vs. calendar year.');
+              }
+            }
+            // Part-time / hourly — variable hours
+            if (sourceType === 'part_time') {
+              reasons.push(miHigher
+                ? 'Hourly worker — current stub may reflect more hours than average. YTD captures periods with fewer hours.'
+                : 'Hourly worker — current stub may reflect reduced hours. YTD includes periods with more scheduled shifts.');
+            }
+            // Self-employed / contractor — irregular income
+            if (sourceType === 'self_employed' || sourceType === 'contractor') {
+              reasons.push('Self-employed/contractor income is often irregular. Compare against 12-month bank statement deposits for a more reliable average.');
+            }
+            // Recent hire detection — if YTD months is low (1-2), they may still be ramping
+            if (ytdM <= 2) {
+              reasons.push(`Only ${ytdM} month${ytdM === 1 ? '' : 's'} of YTD data — recent hire or new position. YTD average may not be stable yet.`);
+            }
+            // Pay frequency mismatch hint
+            if (miHigher && payFrequency === 'biweekly') {
+              reasons.push('Biweekly pay has 26 periods/year (not 24). Some months have 3 pay periods — the current stub may be from a 3-check month.');
+            }
+            // Generic overtime / bonus hint
+            if (miHigher && reasons.length === 0) {
+              reasons.push('Current pay stub may include overtime, bonuses, or commissions not reflected in the YTD average.');
+            }
+            if (!miHigher && reasons.length === 0) {
+              reasons.push('YTD average is higher — prior months may have included overtime, bonuses, or a higher rate before a recent pay change.');
+            }
+          }
 
           return (
             <div className={cn(
@@ -651,12 +700,16 @@ export function IncomeCalculator({
                   YTD: <span className="font-medium text-foreground">${ytdValue.toLocaleString()}/mo</span>
                 </div>
               </div>
-              {!isOk && (
-                <p className="text-xs text-muted-foreground">
-                  {isWarn
-                    ? 'Moderate gap — verify pay stub period matches YTD date range. Check for overtime, bonuses, or recent pay changes.'
-                    : 'Large gap — investigate: possible missed pay periods, recent hire, seasonal hours, or incorrect YTD months. Request additional stubs or bank statements to reconcile.'}
-                </p>
+              {!isOk && reasons.length > 0 && (
+                <div className="space-y-1 pt-0.5">
+                  <p className="text-xs font-medium text-muted-foreground">Possible reasons:</p>
+                  {reasons.map((reason, i) => (
+                    <p key={i} className="text-xs text-muted-foreground flex gap-1.5">
+                      <span className="shrink-0 text-warning">•</span>
+                      {reason}
+                    </p>
+                  ))}
+                </div>
               )}
             </div>
           );
