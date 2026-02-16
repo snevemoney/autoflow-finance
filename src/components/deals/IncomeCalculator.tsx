@@ -279,7 +279,7 @@ export function IncomeCalculator({
         },
       });
 
-      // Variance check
+      // Variance check (stated vs calculated)
       if (computedResult != null && statedMonthlyIncome > 0) {
         const variance = Math.abs(computedResult - statedMonthlyIncome) / statedMonthlyIncome;
         if (variance > 0.15) {
@@ -321,6 +321,116 @@ export function IncomeCalculator({
         }
       } else {
         toast({ title: `Calculation applied: ${methodLabel}` });
+      }
+
+      // MI vs YTD cross-check auto-flag
+      {
+        let crossMi: number | null = null;
+        if (miInputMode === 'salary') {
+          const gpp = parseFloat(grossPerPeriod);
+          if (gpp > 0) crossMi = Math.round(gpp * FREQUENCY_MULTIPLIERS[payFrequency]);
+        } else {
+          const rate = parseFloat(hourlyRate);
+          const hrs = parseFloat(hoursPerWeek);
+          if (rate > 0 && hrs > 0) crossMi = Math.round(rate * hrs * 4.33);
+        }
+        const crossYtdG = parseFloat(ytdGross);
+        const crossYtdM = parseInt(ytdMonths);
+        const crossYtd = crossYtdG > 0 && crossYtdM >= 1 ? Math.round(crossYtdG / crossYtdM) : null;
+
+        if (crossMi != null && crossYtd != null) {
+          const crossAvg = (crossMi + crossYtd) / 2;
+          const crossDiff = Math.abs(crossMi - crossYtd);
+          const crossPct = crossAvg > 0 ? Math.round((crossDiff / crossAvg) * 100) : 0;
+
+          if (crossPct > 20) {
+            const miHigher = crossMi > crossYtd;
+            // Build diagnosis reasons
+            const diagReasons: string[] = [];
+            if (sourceType === 'seasonal') {
+              diagReasons.push(miHigher ? 'Seasonal worker — YTD includes off-season months' : 'Seasonal worker — current stub from off-season period');
+            }
+            if (sourceType === 'education') {
+              const cm = contractMonthsProp;
+              diagReasons.push(cm && cm < 12
+                ? `Education employee on ${cm}-month contract; YTD divides by ${crossYtdM} calendar months`
+                : 'Education employee — academic vs calendar year mismatch');
+            }
+            if (sourceType === 'part_time') {
+              diagReasons.push('Hourly worker — variable hours between pay periods');
+            }
+            if (sourceType === 'self_employed' || sourceType === 'contractor') {
+              diagReasons.push('Self-employed/contractor — irregular income patterns');
+            }
+            if (crossYtdM <= 2) {
+              diagReasons.push(`Only ${crossYtdM} month${crossYtdM === 1 ? '' : 's'} of YTD data — possible recent hire`);
+            }
+            if (miHigher && payFrequency === 'biweekly') {
+              diagReasons.push('Biweekly pay — possible 3-check month on current stub');
+            }
+            if (diagReasons.length === 0) {
+              diagReasons.push(miHigher
+                ? 'Current stub may include overtime, bonuses, or commissions'
+                : 'Prior months may have included higher pay — recent pay change possible');
+            }
+
+            const flagText = `MI vs YTD gap: ${crossPct}%`;
+            const { data: flagCurrent } = await supabase
+              .from('income_sources')
+              .select('flag_reasons, verification_status')
+              .eq('id', sourceId)
+              .single();
+
+            const existingFlags: string[] = (flagCurrent?.flag_reasons as string[]) ?? [];
+            // Remove any old MI vs YTD gap flag before adding the current one
+            const cleanedFlags = existingFlags.filter(f => !f.startsWith('MI vs YTD gap:'));
+            const newFlags = [...cleanedFlags, flagText];
+
+            const statusUpdate: Record<string, unknown> = { flag_reasons: newFlags };
+            if (flagCurrent?.verification_status === 'unverified') {
+              statusUpdate.verification_status = 'flagged';
+            }
+
+            await supabase
+              .from('income_sources')
+              .update(statusUpdate)
+              .eq('id', sourceId);
+
+            // Timeline entry with diagnosis
+            const diagText = diagReasons.map(r => `• ${r}`).join('\n');
+            await supabase.from('deal_timeline').insert({
+              deal_id: dealId,
+              type: 'note_added' as any,
+              description: `🔍 MI vs YTD cross-check flagged: ${crossPct}% gap (MI $${crossMi.toLocaleString()}/mo vs YTD $${crossYtd.toLocaleString()}/mo)\n\nPossible reasons:\n${diagText}`,
+              created_by: user?.id ?? null,
+              metadata: {
+                action: 'mi_ytd_cross_check_flag',
+                mi_value: crossMi,
+                ytd_value: crossYtd,
+                gap_percent: crossPct,
+                mi_higher: miHigher,
+                diagnosis_reasons: diagReasons,
+                source_type: sourceType,
+              },
+            });
+          } else {
+            // Gap is acceptable — remove any old MI vs YTD flag if present
+            const { data: flagCurrent } = await supabase
+              .from('income_sources')
+              .select('flag_reasons')
+              .eq('id', sourceId)
+              .single();
+
+            const existingFlags: string[] = (flagCurrent?.flag_reasons as string[]) ?? [];
+            const hadGapFlag = existingFlags.some(f => f.startsWith('MI vs YTD gap:'));
+            if (hadGapFlag) {
+              await supabase
+                .from('income_sources')
+                .update({ flag_reasons: existingFlags.filter(f => !f.startsWith('MI vs YTD gap:')) })
+                .eq('id', sourceId);
+            }
+          }
+        }
       }
 
       onUpdated();
