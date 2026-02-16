@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Calculator, AlertTriangle, FileText, Loader2, Ban, ShieldAlert, FileDown } from 'lucide-react';
+import { Calculator, AlertTriangle, FileText, Loader2, Ban, ShieldAlert, FileDown, TrendingUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
@@ -797,6 +797,41 @@ export function IncomeCalculator({
             }
           }
 
+          // Determine recommended calc method based on context
+          let recMethod: 'mi' | 'ytd' | null = null;
+          let recReason = '';
+
+          if (!isOk) {
+            if (sourceType === 'seasonal') {
+              // Seasonal: YTD smooths out peaks/valleys
+              recMethod = 'ytd';
+              recReason = 'YTD averages out seasonal fluctuations for a more stable figure.';
+            } else if (sourceType === 'education') {
+              // Education: MI is more accurate since contract months ≠ calendar months
+              recMethod = 'mi';
+              recReason = 'MI reflects actual contract pay; YTD divides by calendar months which dilutes the figure.';
+            } else if (sourceType === 'part_time') {
+              // Part-time: YTD smooths variable hours
+              recMethod = 'ytd';
+              recReason = 'YTD averages variable hours across pay periods for a more representative figure.';
+            } else if (sourceType === 'self_employed' || sourceType === 'contractor') {
+              // Self-employed: YTD or bank avg is more reliable
+              recMethod = 'ytd';
+              recReason = 'YTD provides a broader average for irregular income. Cross-reference with bank deposits.';
+            } else if (ytdM <= 2) {
+              // Recent hire: MI is more reliable with limited YTD data
+              recMethod = 'mi';
+              recReason = `Only ${ytdM} month${ytdM === 1 ? '' : 's'} of YTD data — MI from current pay stub is more reliable until more history accumulates.`;
+            } else if (miHigher && payFrequency === 'biweekly') {
+              // Biweekly 3-check month: YTD is more reliable
+              recMethod = 'ytd';
+              recReason = 'Current stub may be from a 3-check month. YTD normalizes biweekly pay across the year.';
+            } else {
+              // Default: use the lower value (conservative)
+              recMethod = miHigher ? 'ytd' : 'mi';
+              recReason = `Using the lower value ($${Math.min(miValue, ytdValue).toLocaleString()}/mo) is the more conservative approach.`;
+            }
+          }
           // Check which docs are already requested
           const alreadyRequested = additionalDocsRequested ?? [];
           const newDocs = recDocs.filter(d => !alreadyRequested.includes(d));
@@ -867,6 +902,33 @@ export function IncomeCalculator({
                       {reason}
                     </p>
                   ))}
+                </div>
+              )}
+              {!isOk && recMethod && (
+                <div className="flex items-start gap-2 pt-1 border-t border-border/50">
+                  <TrendingUp className="h-3.5 w-3.5 shrink-0 text-primary mt-0.5" />
+                  <div className="flex-1 space-y-1.5">
+                    <p className="text-xs">
+                      <span className="font-medium text-primary">Recommended: {recMethod === 'mi' ? 'Monthly Income (MI)' : 'Year-to-Date (YTD)'}</span>
+                      <span className="text-muted-foreground"> — {recReason}</span>
+                    </p>
+                    {method !== recMethod && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-6 text-xs gap-1 border-primary/30 text-primary hover:bg-primary/10"
+                        onClick={() => setMethod(recMethod!)}
+                      >
+                        <TrendingUp className="h-3 w-3" />
+                        Switch to {recMethod === 'mi' ? 'MI' : 'YTD'}
+                      </Button>
+                    )}
+                    {method === recMethod && (
+                      <Badge variant="outline" className="text-xs bg-primary/10 text-primary border-primary/30">
+                        ✓ Currently using recommended method
+                      </Badge>
+                    )}
+                  </div>
                 </div>
               )}
               {!isOk && recDocs.length > 0 && (
