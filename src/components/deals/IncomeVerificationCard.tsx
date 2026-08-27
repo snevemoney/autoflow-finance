@@ -7,6 +7,9 @@ import { cn } from '@/lib/utils';
 import type { Deal } from '@/types/deal';
 import { supabase } from '@/integrations/supabase/client';
 import { useQuery } from '@tanstack/react-query';
+import { toast } from '@/hooks/use-toast';
+import { calcMonthlyFromExtraction } from '@/lib/income';
+import { QueryError } from '@/components/QueryError';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { IncomeSourceCard, type IncomeSource } from './IncomeSourceCard';
@@ -32,16 +35,6 @@ interface ExtractedIncome {
   income_source_id: string | null;
 }
 
-function calcMonthlyFromExtraction(grossPay: number, frequency: string): number {
-  switch (frequency) {
-    case 'weekly': return Math.round(grossPay * 4.33);
-    case 'biweekly': return Math.round(grossPay * 2.17);
-    case 'semimonthly': return Math.round(grossPay * 2);
-    case 'monthly': return grossPay;
-    default: return grossPay;
-  }
-}
-
 /** Try to match an extraction to an income source by employer name similarity */
 function findMatchingSource(extraction: ExtractedIncome, sources: IncomeSource[]): IncomeSource | null {
   if (!extraction.employer_name_on_doc) return null;
@@ -58,13 +51,14 @@ function findMatchingSource(extraction: ExtractedIncome, sources: IncomeSource[]
 
 export function IncomeVerificationCard({ deal }: IncomeVerificationCardProps) {
   // Query applicant debts for DTI calculation
-  const { data: debts = [] } = useQuery({
+  const { data: debts = [], isError: debtsError, refetch: refetchDebts } = useQuery({
     queryKey: ['applicant-debts', deal.id],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('applicant_debts')
         .select('*')
-        .eq('deal_id', deal.id);
+        .eq('deal_id', deal.id)
+        .limit(100);
       if (error) throw error;
       return (data ?? []) as ApplicantDebt[];
     },
@@ -78,27 +72,29 @@ export function IncomeVerificationCard({ deal }: IncomeVerificationCardProps) {
   const matchedRef = useRef<Set<string>>(new Set());
 
   // Query income sources
-  const { data: incomeSources, refetch: refetchSources } = useQuery({
+  const { data: incomeSources, refetch: refetchSources, isError: sourcesError } = useQuery({
     queryKey: ['income-sources', deal.id],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('income_sources')
         .select('*')
         .eq('deal_id', deal.id)
-        .order('is_primary', { ascending: false });
+        .order('is_primary', { ascending: false })
+        .limit(100);
       if (error) throw error;
       return (data ?? []) as IncomeSource[];
     },
   });
 
   // Query extracted income data
-  const { data: extractions } = useQuery({
+  const { data: extractions, isError: extractionsError, refetch: refetchExtractions } = useQuery({
     queryKey: ['extracted-income', deal.id],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('extracted_income_data')
         .select('*')
-        .eq('deal_id', deal.id);
+        .eq('deal_id', deal.id)
+        .limit(100);
       if (error) throw error;
       return (data ?? []) as ExtractedIncome[];
     },
@@ -126,7 +122,12 @@ export function IncomeVerificationCard({ deal }: IncomeVerificationCardProps) {
       verification_status: 'unverified' as any,
       calc_method: 'mi',
     }).then(({ error }) => {
-      if (!error) refetchSources();
+      if (error) {
+        autoCreatedRef.current = false;
+        toast({ title: 'Could not seed income source', description: error.message, variant: 'destructive' });
+        return;
+      }
+      refetchSources();
     });
   }, [incomeSources, deal.id, deal.customer]);
 
@@ -149,7 +150,12 @@ export function IncomeVerificationCard({ deal }: IncomeVerificationCardProps) {
       supabase.from('extracted_income_data')
         .update({ income_source_id: match.id })
         .eq('id', extraction.id)
-        .then(() => {});
+        .then(({ error }) => {
+          if (error) {
+            matchedRef.current.delete(extraction.id);
+            toast({ title: 'Could not link extraction', description: error.message, variant: 'destructive' });
+          }
+        });
 
       // Update income source calculated income + fraud flags
       const flags = [...(match.flag_reasons || [])];
@@ -179,7 +185,13 @@ export function IncomeVerificationCard({ deal }: IncomeVerificationCardProps) {
           flag_reasons: flags,
         })
         .eq('id', match.id)
-        .then(() => refetchSources());
+        .then(({ error }) => {
+          if (error) {
+            toast({ title: 'Could not update income source', description: error.message, variant: 'destructive' });
+            return;
+          }
+          refetchSources();
+        });
     }
   }, [extractions, incomeSources]);
 
@@ -195,6 +207,23 @@ export function IncomeVerificationCard({ deal }: IncomeVerificationCardProps) {
   }
 
   const hasMultiSource = incomeSources && incomeSources.length > 0;
+
+  if (debtsError || sourcesError || extractionsError) {
+    return (
+      <Card>
+        <CardContent className="pt-6">
+          <QueryError
+            message="Could not load income verification data."
+            onRetry={() => {
+              refetchDebts();
+              refetchSources();
+              refetchExtractions();
+            }}
+          />
+        </CardContent>
+      </Card>
+    );
+  }
 
   // --- Multi-source view ---
   if (hasMultiSource) {

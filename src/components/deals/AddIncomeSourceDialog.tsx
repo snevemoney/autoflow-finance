@@ -8,6 +8,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { AlertTriangle } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
+import { isUuid, parseMoney } from '@/lib/guards';
 import type { IncomeSourceType } from './IncomeSourceCard';
 
 const RIDESHARE_EMPLOYERS = [
@@ -61,27 +62,34 @@ export function AddIncomeSourceDialog({ open, onOpenChange, dealId, customerId, 
     if (!employerName || !statedIncome) return;
     setSaving(true);
 
-    const stated = parseFloat(statedIncome);
-    let calculated: number | null = null;
-
-    // Auto-calculate for hourly
-    if (sourceType === 'part_time' && hoursPerWeek && hourlyRate) {
-      calculated = Math.round(parseFloat(hoursPerWeek) * parseFloat(hourlyRate) * 4.33);
+    const stated = parseMoney(statedIncome);
+    if (stated === null || stated < 0) {
+      toast({ title: 'Invalid amount', description: 'Enter a valid stated monthly income.', variant: 'destructive' });
+      setSaving(false);
+      return;
     }
 
-    // Fraud flags
+    let calculated: number | null = null;
+
+    if (sourceType === 'part_time' && hoursPerWeek && hourlyRate) {
+      const hours = parseMoney(hoursPerWeek);
+      const rate = parseMoney(hourlyRate);
+      if (hours !== null && rate !== null) {
+        calculated = Math.round(hours * rate * 4.33);
+      }
+    }
+
     const flags: string[] = [];
     if (stated > 0 && stated % 1000 === 0) flags.push('Round number suspicion');
 
     try {
-      // Validate IDs are valid UUIDs for database insertion
-      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-      const validDealId = uuidRegex.test(dealId) ? dealId : crypto.randomUUID();
-      const validCustomerId = uuidRegex.test(customerId) ? customerId : crypto.randomUUID();
+      if (!isUuid(dealId) || !isUuid(customerId)) {
+        throw new Error('Cannot add an income source without a valid deal and customer.');
+      }
 
       const { error } = await supabase.from('income_sources').insert({
-        deal_id: validDealId,
-        customer_id: validCustomerId,
+        deal_id: dealId,
+        customer_id: customerId,
         source_type: sourceType,
         employer_name: employerName,
         job_title: jobTitle || null,
@@ -89,8 +97,8 @@ export function AddIncomeSourceDialog({ open, onOpenChange, dealId, customerId, 
         calculated_monthly_income: calculated,
         pay_frequency: payFrequency,
         contract_months: sourceType === 'education' ? parseInt(contractMonths) || null : null,
-        hours_per_week: sourceType === 'part_time' ? parseFloat(hoursPerWeek) || null : null,
-        hourly_rate: sourceType === 'part_time' ? parseFloat(hourlyRate) || null : null,
+        hours_per_week: sourceType === 'part_time' ? parseMoney(hoursPerWeek) : null,
+        hourly_rate: sourceType === 'part_time' ? parseMoney(hourlyRate) : null,
         is_primary: false,
         flag_reasons: vehicleForWork ? [...flags, 'Vehicle used for commercial/rideshare work'] : flags,
         vehicle_for_work: vehicleForWork,

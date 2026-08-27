@@ -10,9 +10,10 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { DocumentType, DOCUMENT_TYPE_CONFIG } from '@/types/deal';
+import { isIncomeDocType } from '@/lib/income';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
-import { supabase } from '@/integrations/supabase/client';
+import { invokeFunction } from '@/lib/http';
 
 interface UploadedFile {
   file: File;
@@ -26,7 +27,6 @@ interface DocumentUploadProps {
   onUpload?: (files: UploadedFile[]) => void;
 }
 
-const INCOME_DOC_TYPES: DocumentType[] = ['pay_stub', 'bank_statement', 'income_verification'];
 const IMAGE_MIME_TYPES = ['image/jpeg', 'image/png', 'image/jpg'];
 
 async function fileToBase64(file: File): Promise<string> {
@@ -88,11 +88,10 @@ export function DocumentUpload({ dealId, onUpload }: DocumentUploadProps) {
 
     try {
       const base64 = await fileToBase64(file);
-      const { data, error } = await supabase.functions.invoke('extract-income-data', {
-        body: { imageBase64: base64, mimeType: file.type },
+      const data = await invokeFunction<{ confidence?: string }>('extract-income-data', {
+        imageBase64: base64,
+        mimeType: file.type,
       });
-
-      if (error) throw error;
 
       setUploadedFiles((prev) =>
         prev.map((f, i) => (i === fileIndex ? { ...f, extractionStatus: 'done' } : f))
@@ -103,11 +102,8 @@ export function DocumentUpload({ dealId, onUpload }: DocumentUploadProps) {
         description: `Extracted ${data.confidence} confidence data from ${file.name}`,
       });
 
-      // If we have a dealId, save to database
       if (dealId && data) {
-        // Note: In production, the document_id would come from the actual document record
-        // For now we log the extracted data
-        console.log('Extracted income data:', data);
+        // Extraction is complete; persisting against a document row is a later step.
       }
     } catch (err) {
       console.error('Extraction error:', err);
@@ -129,7 +125,7 @@ export function DocumentUpload({ dealId, onUpload }: DocumentUploadProps) {
     // Auto-trigger extraction for income image documents
     uploadedFiles.forEach((item, index) => {
       if (
-        INCOME_DOC_TYPES.includes(item.type) &&
+        isIncomeDocType(item.type) &&
         IMAGE_MIME_TYPES.includes(item.file.type)
       ) {
         triggerExtraction(item.file, index);
@@ -186,7 +182,7 @@ export function DocumentUpload({ dealId, onUpload }: DocumentUploadProps) {
 
   const renderExtractionStatus = (item: UploadedFile) => {
     const isIncomeImage =
-      INCOME_DOC_TYPES.includes(item.type) && IMAGE_MIME_TYPES.includes(item.file.type);
+      isIncomeDocType(item.type) && IMAGE_MIME_TYPES.includes(item.file.type);
 
     if (!isIncomeImage) return null;
 

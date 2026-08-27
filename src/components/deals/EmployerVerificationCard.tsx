@@ -5,6 +5,7 @@ import { Building2, CheckCircle2, XCircle, Loader2, AlertTriangle } from 'lucide
 import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
+import { invokeFunction } from '@/lib/http';
 
 interface EmployerVerificationCardProps {
   employer: string;
@@ -41,25 +42,30 @@ export function EmployerVerificationCard({
     if (!employer) return;
     setLoading(true);
     try {
-      const { data, error } = await supabase.functions.invoke('verify-employer', {
-        body: { employer, city, state },
+      const verificationResult = await invokeFunction<VerificationResult>('verify-employer', {
+        employer,
+        city,
+        state,
       });
-
-      if (error) throw error;
-
-      const verificationResult: VerificationResult = data;
       setResult(verificationResult);
       setVerified(verificationResult.verified);
 
       // Cache result on customer if customerId provided
       if (customerId) {
-        await supabase
+        const { error: cacheError } = await supabase
           .from('customers')
           .update({
             employer_verified: verificationResult.verified,
             employer_verification_data: JSON.parse(JSON.stringify(verificationResult)),
           })
           .eq('id', customerId);
+        if (cacheError) {
+          toast({
+            title: 'Verified, but cache failed',
+            description: cacheError.message,
+            variant: 'destructive',
+          });
+        }
       }
 
       toast({

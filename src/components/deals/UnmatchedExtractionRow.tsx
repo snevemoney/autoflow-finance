@@ -10,7 +10,8 @@ import {
 } from '@/components/ui/select';
 import { Link2, FileText } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
-import { toast } from 'sonner';
+import { toast } from '@/hooks/use-toast';
+import { calcMonthlyFromExtraction } from '@/lib/income';
 import type { IncomeSource } from './IncomeSourceCard';
 
 interface ExtractedIncome {
@@ -31,16 +32,6 @@ interface UnmatchedExtractionRowProps {
   extraction: ExtractedIncome;
   incomeSources: IncomeSource[];
   onLinked: () => void;
-}
-
-function calcMonthlyFromExtraction(grossPay: number, frequency: string): number {
-  switch (frequency) {
-    case 'weekly': return Math.round(grossPay * 4.33);
-    case 'biweekly': return Math.round(grossPay * 2.17);
-    case 'semimonthly': return Math.round(grossPay * 2);
-    case 'monthly': return grossPay;
-    default: return grossPay;
-  }
 }
 
 export function UnmatchedExtractionRow({ extraction, incomeSources, onLinked }: UnmatchedExtractionRowProps) {
@@ -91,11 +82,11 @@ export function UnmatchedExtractionRow({ extraction, incomeSources, onLinked }: 
         .eq('id', selectedSourceId);
       if (updateError) throw updateError;
 
-      toast.success('Extraction linked to income source');
+      toast({ title: 'Extraction linked to income source' });
       onLinked();
     } catch (err) {
       console.error(err);
-      toast.error('Failed to link extraction');
+      toast({ title: 'Failed to link extraction', variant: 'destructive' });
     } finally {
       setLinking(false);
     }

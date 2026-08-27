@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useQuery } from '@tanstack/react-query';
+import { toast } from '@/hooks/use-toast';
 import { FileText, Image, ChevronDown, ChevronUp, ExternalLink, File, Loader2, GripVertical } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -84,7 +85,8 @@ export function IncomeDocPreview({ dealId, sourceId, onClickFill }: IncomeDocPre
       const { data, error } = await supabase
         .from('extracted_income_data')
         .select('document_id')
-        .eq('income_source_id', sourceId);
+        .eq('income_source_id', sourceId)
+        .limit(50);
       if (error) throw error;
       return (data ?? []).map(d => d.document_id);
     },
@@ -97,7 +99,8 @@ export function IncomeDocPreview({ dealId, sourceId, onClickFill }: IncomeDocPre
         .from('documents')
         .select('*')
         .eq('deal_id', dealId)
-        .in('type', ['pay_stub', 'bank_statement', 'income_verification']);
+        .in('type', ['pay_stub', 'bank_statement', 'income_verification'])
+        .limit(50);
       if (error) throw error;
       return (data ?? []) as IncomeDocument[];
     },
@@ -110,7 +113,8 @@ export function IncomeDocPreview({ dealId, sourceId, onClickFill }: IncomeDocPre
       const { data, error } = await supabase
         .from('extracted_income_data')
         .select('id, document_id, gross_pay, net_pay, pay_frequency, ytd_gross, employer_name_on_doc, confidence')
-        .eq('income_source_id', sourceId);
+        .eq('income_source_id', sourceId)
+        .limit(50);
       if (error) throw error;
       return (data ?? []) as ExtractedData[];
     },
@@ -124,7 +128,8 @@ export function IncomeDocPreview({ dealId, sourceId, onClickFill }: IncomeDocPre
         .from('extracted_income_data')
         .select('id, document_id, gross_pay, net_pay, pay_frequency, ytd_gross, employer_name_on_doc, confidence')
         .eq('deal_id', dealId)
-        .is('income_source_id', null);
+        .is('income_source_id', null)
+        .limit(50);
       if (error) throw error;
       return (data ?? []) as ExtractedData[];
     },
@@ -164,7 +169,11 @@ export function IncomeDocPreview({ dealId, sourceId, onClickFill }: IncomeDocPre
     } else {
       const path = doc.file_url.replace(/^documents\//, '');
       const { data, error } = await supabase.storage.from('documents').createSignedUrl(path, 3600);
-      if (!error && data?.signedUrl) url = data.signedUrl;
+      if (error || !data?.signedUrl) {
+        toast({ title: 'Could not open document', description: error?.message ?? 'Signed URL failed.', variant: 'destructive' });
+      } else {
+        url = data.signedUrl;
+      }
     }
 
     setPreviewUrl(url);

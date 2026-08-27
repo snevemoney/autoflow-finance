@@ -1,24 +1,47 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import {
+  corsHeaders,
+  fetchWithRetry,
+  isIsoDate,
+  isSafeHttpsUrl,
+  jsonResponse,
+  requireUser,
+} from "../_shared/auth.ts";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
-};
+const ALLOWED_MIME = new Set(["image/jpeg", "image/jpg", "image/png", "image/webp"]);
+const MAX_BASE64_CHARS = 8_000_000;
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+    return new Response(null, { headers: corsHeaders(req) });
+  }
+
+  if (req.method !== "POST") {
+    return jsonResponse(req, { error: "Method not allowed" }, 405);
+  }
+
+  const { user, error: authError } = await requireUser(req);
+  if (!user) {
+    return jsonResponse(req, { error: authError ?? "Unauthorized" }, 401);
   }
 
   try {
-    const { imageBase64, imageUrl, mimeType } = await req.json();
+    const body = await req.json();
+    const imageBase64 = typeof body?.imageBase64 === "string" ? body.imageBase64 : "";
+    const imageUrl = body?.imageUrl;
+    const mimeType = typeof body?.mimeType === "string" ? body.mimeType : "image/jpeg";
 
     if (!imageBase64 && !imageUrl) {
-      return new Response(
-        JSON.stringify({ error: "Either imageBase64 or imageUrl is required" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return jsonResponse(req, { error: "Either imageBase64 or imageUrl is required" }, 400);
+    }
+    if (imageBase64 && imageBase64.length > MAX_BASE64_CHARS) {
+      return jsonResponse(req, { error: "Image payload is too large" }, 400);
+    }
+    if (imageBase64 && !ALLOWED_MIME.has(mimeType)) {
+      return jsonResponse(req, { error: "Unsupported image type" }, 400);
+    }
+    if (imageUrl && !isSafeHttpsUrl(imageUrl)) {
+      return jsonResponse(req, { error: "imageUrl must be a public https URL" }, 400);
     }
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
@@ -26,12 +49,11 @@ serve(async (req) => {
       throw new Error("LOVABLE_API_KEY is not configured");
     }
 
-    // Build image content part for the vision model
     const imagePart = imageBase64
       ? {
           type: "image_url" as const,
           image_url: {
-            url: `data:${mimeType || "image/jpeg"};base64,${imageBase64}`,
+            url: `data:${mimeType};base64,${imageBase64}`,
           },
         }
       : {
@@ -39,7 +61,7 @@ serve(async (req) => {
           image_url: { url: imageUrl },
         };
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const response = await fetchWithRetry("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${LOVABLE_API_KEY}`,
@@ -57,7 +79,7 @@ serve(async (req) => {
             content: [
               {
                 type: "text",
-                text: "Extract the income data from this document image. Look for gross pay, net pay, pay frequency, pay date, employer name, and any YTD totals. Also extract the full visible text for audit purposes.",
+                text: "Extract the income data from this document image. Look for gross pay, net pay, pay frequency, pay date, employer name, and any YTD totals. Also extract the full visible text for audit purposes. pay_date must be YYYY-MM-DD or omitted.",
               },
               imagePart,
             ],
@@ -119,16 +141,10 @@ serve(async (req) => {
 
     if (!response.ok) {
       if (response.status === 429) {
-        return new Response(
-          JSON.stringify({ error: "Rate limit exceeded, please try again later." }),
-          { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
+        return jsonResponse(req, { error: "Rate limit exceeded, please try again later." }, 429);
       }
       if (response.status === 402) {
-        return new Response(
-          JSON.stringify({ error: "Payment required, please add credits." }),
-          { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
+        return jsonResponse(req, { error: "Payment required, please add credits." }, 402);
       }
       const text = await response.text();
       console.error("AI gateway error:", response.status, text);
@@ -143,15 +159,17 @@ serve(async (req) => {
     }
 
     const result = JSON.parse(toolCall.function.arguments);
+    if (result.pay_date && !isIsoDate(result.pay_date)) {
+      result.pay_date = null;
+    }
 
-    return new Response(JSON.stringify(result), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return jsonResponse(req, result);
   } catch (e) {
     console.error("extract-income-data error:", e);
-    return new Response(
-      JSON.stringify({ error: e instanceof Error ? e.message : "Unknown error" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    return jsonResponse(
+      req,
+      { error: e instanceof Error ? e.message : "Unknown error" },
+      500,
     );
   }
 });

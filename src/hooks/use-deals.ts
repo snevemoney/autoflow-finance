@@ -1,6 +1,11 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { isUuid } from '@/lib/guards';
 import type { Deal, DealStatus } from '@/types/deal';
+
+export const DEAL_PAGE_SIZE = 50;
+export const PIPELINE_PAGE_SIZE = 100;
+export const DEALER_PAGE_SIZE = 200;
 
 interface DbDeal {
   id: string;
@@ -136,7 +141,7 @@ function transformDeal(row: DbDeal): Deal {
     dealerContact: d.contact_name,
     assignedTo: row.assigned_to ?? undefined,
     assignedDepartment: row.assigned_department as Deal['assignedDepartment'],
-    documents: [], // loaded separately
+    documents: [],
     notes: [],
     timeline: [],
     decisionNotes: row.decision_notes ?? undefined,
@@ -158,16 +163,36 @@ const DEAL_SELECT = `
   dealers (*)
 `;
 
-async function fetchDeals(): Promise<Deal[]> {
-  const { data, error } = await supabase
+export interface DealPage {
+  deals: Deal[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+async function fetchDeals(page = 0, pageSize = DEAL_PAGE_SIZE, status?: DealStatus | 'all'): Promise<DealPage> {
+  const from = page * pageSize;
+  const to = from + pageSize - 1;
+  let query = supabase
     .from('deals')
-    .select(DEAL_SELECT)
-    .order('created_at', { ascending: false });
+    .select(DEAL_SELECT, { count: 'exact' })
+    .order('created_at', { ascending: false })
+    .range(from, to);
+  if (status && status !== 'all') {
+    query = query.eq('status', status);
+  }
+  const { data, error, count } = await query;
   if (error) throw error;
-  return (data ?? []).map((row: any) => transformDeal(row));
+  return {
+    deals: (data ?? []).map((row: any) => transformDeal(row)),
+    total: count ?? 0,
+    page,
+    pageSize,
+  };
 }
 
 async function fetchDealById(id: string): Promise<Deal | null> {
+  if (!isUuid(id)) return null;
   const { data, error } = await supabase
     .from('deals')
     .select(`${DEAL_SELECT}, documents (*), deal_notes (*), deal_timeline (*)`)
@@ -176,7 +201,6 @@ async function fetchDealById(id: string): Promise<Deal | null> {
   if (error) throw error;
   if (!data) return null;
   const deal = transformDeal(data as any);
-  // Attach documents, notes, timeline
   deal.documents = (data.documents ?? []).map((doc: any) => ({
     id: doc.id,
     dealId: doc.deal_id,
@@ -213,15 +237,19 @@ async function fetchDealers() {
   const { data, error } = await supabase
     .from('dealers')
     .select('*')
-    .order('name');
+    .order('name')
+    .range(0, DEALER_PAGE_SIZE - 1);
   if (error) throw error;
   return data ?? [];
 }
 
-export function useDeals() {
+export function useDeals(options?: { page?: number; pageSize?: number; status?: DealStatus | 'all' }) {
+  const page = options?.page ?? 0;
+  const pageSize = options?.pageSize ?? DEAL_PAGE_SIZE;
+  const status = options?.status ?? 'all';
   return useQuery({
-    queryKey: ['deals'],
-    queryFn: fetchDeals,
+    queryKey: ['deals', page, pageSize, status],
+    queryFn: () => fetchDeals(page, pageSize, status),
   });
 }
 
@@ -229,23 +257,23 @@ export function useDeal(id: string | undefined) {
   return useQuery({
     queryKey: ['deal', id],
     queryFn: () => fetchDealById(id!),
-    enabled: !!id,
+    enabled: !!id && isUuid(id),
   });
 }
 
 export function useDealsByStatus(status: DealStatus) {
-  const { data: deals, ...rest } = useDeals();
+  const { data, ...rest } = useDeals({ status, pageSize: DEAL_PAGE_SIZE });
   return {
-    data: deals?.filter(d => d.status === status),
+    data: data?.deals,
     ...rest,
   };
 }
 
 export function useDealsByDepartment(department: 'credit' | 'income' | 'funding') {
-  const statusMap = { credit: 'credit_review', income: 'income_verification', funding: 'funding_review' };
-  const { data: deals, ...rest } = useDeals();
+  const statusMap = { credit: 'credit_review', income: 'income_verification', funding: 'funding_review' } as const;
+  const { data, ...rest } = useDeals({ status: statusMap[department], pageSize: DEAL_PAGE_SIZE });
   return {
-    data: deals?.filter(d => d.status === statusMap[department]),
+    data: data?.deals,
     ...rest,
   };
 }

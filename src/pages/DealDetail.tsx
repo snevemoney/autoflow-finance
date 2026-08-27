@@ -12,6 +12,9 @@ import { ExtractedDataBadge, type ExtractedData } from '@/components/deals/Extra
 import type { IncomeSource } from '@/components/deals/IncomeSourceCard';
 import type { ApplicantDebt } from '@/components/deals/ApplicantDebtsCard';
 import { useDeal } from '@/hooks/use-deals';
+import { QueryError } from '@/components/QueryError';
+import { isUuid } from '@/lib/guards';
+import { isIncomeDocType } from '@/lib/income';
 import { supabase } from '@/integrations/supabase/client';
 import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
@@ -49,7 +52,7 @@ import { toast } from '@/hooks/use-toast';
 export default function DealDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { data: deal, isLoading } = useDeal(id);
+  const { data: deal, isLoading, isError, error, refetch } = useDeal(id);
   const [note, setNote] = useState('');
   const [viewerDoc, setViewerDoc] = useState<{ name: string; fileUrl: string; type: string } | null>(null);
 
@@ -61,7 +64,8 @@ export default function DealDetail() {
       const { data, error } = await supabase
         .from('extracted_income_data')
         .select('*')
-        .eq('deal_id', deal.id);
+        .eq('deal_id', deal.id)
+        .limit(100);
       if (error) throw error;
       const map: Record<string, ExtractedData> = {};
       (data ?? []).forEach((item: any) => { map[item.document_id] = item; });
@@ -72,13 +76,14 @@ export default function DealDetail() {
 
   // Fetch income sources for risk computation
   const { data: incomeSources } = useQuery({
-    queryKey: ['income-sources-detail', deal?.id],
+    queryKey: ['income-sources', deal?.id],
     queryFn: async () => {
       if (!deal) return [];
       const { data, error } = await supabase
         .from('income_sources')
         .select('*')
-        .eq('deal_id', deal.id);
+        .eq('deal_id', deal.id)
+        .limit(100);
       if (error) throw error;
       return (data ?? []) as IncomeSource[];
     },
@@ -93,14 +98,13 @@ export default function DealDetail() {
       const { data, error } = await supabase
         .from('applicant_debts')
         .select('*')
-        .eq('deal_id', deal.id);
+        .eq('deal_id', deal.id)
+        .limit(100);
       if (error) throw error;
       return (data ?? []) as ApplicantDebt[];
     },
     enabled: !!deal,
   });
-
-  const INCOME_DOC_TYPES = ['pay_stub', 'bank_statement', 'income_verification'];
 
   // Check if any income source uses vehicle for commercial work
   const hasVehicleForWork = incomeSources?.some(s => s.vehicle_for_work) ?? false;
@@ -120,17 +124,32 @@ export default function DealDetail() {
         })
         .eq('id', deal.id);
 
-      if (!error) {
+      if (error) {
         toast({
-          title: 'Deal Auto-Declined',
-          description: 'Vehicle is used for rideshare/commercial work. Deal is ineligible per policy.',
+          title: 'Auto-decline failed',
+          description: error.message,
           variant: 'destructive',
         });
+        return;
       }
+      toast({
+        title: 'Deal Auto-Declined',
+        description: 'Vehicle is used for rideshare/commercial work. Deal is ineligible per policy.',
+        variant: 'destructive',
+      });
     };
 
     autoDecline();
   }, [hasVehicleForWork, deal?.id, deal?.status]);
+
+  if (id && !isUuid(id)) {
+    return (
+      <div className="flex flex-col h-full items-center justify-center">
+        <h1 className="text-2xl font-bold mb-4">Invalid deal</h1>
+        <Button onClick={() => navigate('/deals')}>Back to Deals</Button>
+      </div>
+    );
+  }
 
   if (isLoading) {
     return (
@@ -138,6 +157,15 @@ export default function DealDetail() {
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
         <p className="mt-2 text-sm text-muted-foreground">Loading deal...</p>
       </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <QueryError
+        message={error instanceof Error ? error.message : 'Could not load this deal.'}
+        onRetry={() => refetch()}
+      />
     );
   }
 
@@ -463,7 +491,7 @@ export default function DealDetail() {
                           </span>
                           <ExtractedDataBadge
                             extraction={extractedDataMap?.[doc.id] ?? null}
-                            isIncomeDoc={INCOME_DOC_TYPES.includes(doc.type)}
+                            isIncomeDoc={isIncomeDocType(doc.type)}
                           />
                         </div>
                       ))}
