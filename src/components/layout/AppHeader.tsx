@@ -38,7 +38,11 @@ export function AppHeader({ title, subtitle }: AppHeaderProps) {
       .select('name')
       .eq('user_id', user.id)
       .maybeSingle()
-      .then(({ data }) => {
+      .then(({ data, error }) => {
+        if (error) {
+          console.error('Profile lookup failed:', error.message);
+          return;
+        }
         if (data?.name) setProfileName(data.name);
       });
   }, [user]);

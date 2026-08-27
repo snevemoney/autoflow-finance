@@ -1,7 +1,7 @@
 project_id = "rjmrqaqnvxfbsnblvsrp"
 
 [functions.verify-employer]
-verify_jwt = false
+verify_jwt = true
 
 [functions.extract-income-data]
-verify_jwt = false
+verify_jwt = true

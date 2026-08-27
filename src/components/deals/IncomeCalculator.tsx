@@ -10,6 +10,7 @@ import { Calculator, AlertTriangle, FileText, Loader2, Ban, ShieldAlert, FileDow
 import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
+import { parseMoney } from '@/lib/guards';
 
 export type CalcMethod = 'mi' | 'ytd' | 'mi_plus_10' | 'mi_plus_20' | 'manual' | 'lower_of';
 type MiInputMode = 'salary' | 'hourly';
@@ -231,7 +232,7 @@ export function IncomeCalculator({
       toast({ title: 'Manual override requires a reason', variant: 'destructive' });
       return;
     }
-    if (method === 'ytd' && (!parseFloat(ytdGross) || !parseInt(ytdMonths) || parseInt(ytdMonths) < 1)) {
+    if (method === 'ytd' && ((parseMoney(ytdGross) ?? 0) <= 0 || !parseInt(ytdMonths) || parseInt(ytdMonths) < 1)) {
       toast({ title: 'YTD requires valid gross amount and months', variant: 'destructive' });
       return;
     }
@@ -251,18 +252,22 @@ export function IncomeCalculator({
         calculated_monthly_income: computedResult,
         benefit_cap_applied: isBenefitType && method !== 'manual',
         pay_frequency: payFrequency,
-        hourly_rate: miInputMode === 'hourly' ? (parseFloat(hourlyRate) || null) : null,
-        hours_per_week: miInputMode === 'hourly' ? (parseFloat(hoursPerWeek) || null) : null,
+        hourly_rate: miInputMode === 'hourly' ? parseMoney(hourlyRate) : null,
+        hours_per_week: miInputMode === 'hourly' ? parseMoney(hoursPerWeek) : null,
         updated_at: new Date().toISOString(),
       };
 
       if (method === 'ytd' || method === 'lower_of') {
-        updates.ytd_gross = parseFloat(ytdGross) || null;
+        updates.ytd_gross = parseMoney(ytdGross);
         updates.ytd_months = parseInt(ytdMonths) || null;
       }
 
       if (method === 'manual') {
-        updates.manual_override_amount = parseFloat(manualAmount);
+        const manual = parseMoney(manualAmount);
+        if (manual === null) {
+          throw new Error('Enter a valid manual override amount.');
+        }
+        updates.manual_override_amount = manual;
         updates.manual_override_reason = manualReason.trim();
       }
 

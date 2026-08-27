@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { AppHeader } from '@/components/layout/AppHeader';
 import { DealCard } from '@/components/deals/DealCard';
-import { useDeals } from '@/hooks/use-deals';
+import { PIPELINE_PAGE_SIZE, useDeals } from '@/hooks/use-deals';
+import { QueryError } from '@/components/QueryError';
 import { Deal, DealStatus, DEAL_STATUS_CONFIG } from '@/types/deal';
 import { cn } from '@/lib/utils';
 import {
@@ -56,7 +57,8 @@ function SortableDealCard({ deal }: { deal: Deal }) {
 }
 
 export default function Pipeline() {
-  const { data: dbDeals = [], isLoading } = useDeals();
+  const { data, isLoading, isError, error, refetch } = useDeals({ page: 0, pageSize: PIPELINE_PAGE_SIZE });
+  const dbDeals = data?.deals ?? [];
   const [localOverrides, setLocalOverrides] = useState<Record<string, DealStatus>>({});
   const [activeDeal, setActiveDeal] = useState<Deal | null>(null);
 
@@ -93,6 +95,15 @@ export default function Pipeline() {
         <div className="flex-1 flex items-center justify-center">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
         </div>
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="flex flex-col h-full">
+        <AppHeader title="Deal Pipeline" subtitle="Drag and drop deals between stages" />
+        <QueryError message={error instanceof Error ? error.message : 'Could not load pipeline.'} onRetry={() => refetch()} />
       </div>
     );
   }

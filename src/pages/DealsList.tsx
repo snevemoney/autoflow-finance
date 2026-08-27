@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { AppHeader } from '@/components/layout/AppHeader';
 import { StatusBadge } from '@/components/deals/StatusBadge';
-import { useDeals } from '@/hooks/use-deals';
+import { QueryError } from '@/components/QueryError';
+import { DEAL_PAGE_SIZE, useDeals } from '@/hooks/use-deals';
 import { DealStatus, DEAL_STATUS_CONFIG } from '@/types/deal';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -14,13 +15,21 @@ import {
 } from '@/components/ui/select';
 import { useNavigate } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
-import { Search, Filter, Download, SlidersHorizontal, Loader2 } from 'lucide-react';
+import { Search, Filter, Download, SlidersHorizontal, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
 
 export default function DealsList() {
   const navigate = useNavigate();
-  const { data: deals = [], isLoading } = useDeals();
+  const [page, setPage] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<DealStatus | 'all'>('all');
+  const { data, isLoading, isError, error, refetch } = useDeals({
+    page,
+    pageSize: DEAL_PAGE_SIZE,
+    status: statusFilter,
+  });
+  const deals = data?.deals ?? [];
+  const total = data?.total ?? 0;
+  const pageCount = Math.max(1, Math.ceil(total / DEAL_PAGE_SIZE));
 
   const filteredDeals = deals.filter((deal) => {
     const matchesSearch =
@@ -66,7 +75,10 @@ export default function DealsList() {
 
             <Select
               value={statusFilter}
-              onValueChange={(v) => setStatusFilter(v as DealStatus | 'all')}
+              onValueChange={(v) => {
+                setStatusFilter(v as DealStatus | 'all');
+                setPage(0);
+              }}
             >
               <SelectTrigger className="w-48">
                 <Filter className="h-4 w-4 mr-2" />
@@ -100,6 +112,8 @@ export default function DealsList() {
             <div className="flex items-center justify-center py-12">
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
             </div>
+          ) : isError ? (
+            <QueryError message={error instanceof Error ? error.message : 'Could not load deals.'} onRetry={() => refetch()} />
           ) : (
             <div className="rounded-lg border overflow-hidden">
               <table className="data-table">
@@ -162,6 +176,21 @@ export default function DealsList() {
                   ))}
                 </tbody>
               </table>
+            </div>
+          )}
+          {!isLoading && !isError && total > 0 && (
+            <div className="flex items-center justify-between mt-4">
+              <p className="text-sm text-muted-foreground">
+                Page {page + 1} of {pageCount} · {total} deals
+              </p>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage((p) => Math.max(0, p - 1))}>
+                  <ChevronLeft className="h-4 w-4 mr-1" /> Previous
+                </Button>
+                <Button variant="outline" size="sm" disabled={page + 1 >= pageCount} onClick={() => setPage((p) => p + 1)}>
+                  Next <ChevronRight className="h-4 w-4 ml-1" />
+                </Button>
+              </div>
             </div>
           )}
         </div>
