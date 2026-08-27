@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from '@/hooks/use-toast';
+import { isEmail } from '@/lib/guards';
 import { Navigate } from 'react-router-dom';
 
 export default function Auth() {
@@ -30,9 +31,13 @@ export default function Auth() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isEmail(loginEmail) || !loginPassword) {
+      toast({ title: 'Invalid credentials', description: 'Enter a valid email and password.', variant: 'destructive' });
+      return;
+    }
     setLoading(true);
     const { error } = await supabase.auth.signInWithPassword({
-      email: loginEmail,
+      email: loginEmail.trim(),
       password: loginPassword,
     });
     setLoading(false);
@@ -45,9 +50,13 @@ export default function Auth() {
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isEmail(signupEmail) || signupPassword.length < 6 || !signupName.trim()) {
+      toast({ title: 'Invalid signup', description: 'Name, a valid email, and a password of at least 6 characters are required.', variant: 'destructive' });
+      return;
+    }
     setLoading(true);
     const { error } = await supabase.auth.signUp({
-      email: signupEmail,
+      email: signupEmail.trim(),
       password: signupPassword,
       options: {
         data: { name: signupName },

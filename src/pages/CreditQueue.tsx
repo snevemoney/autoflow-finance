@@ -13,6 +13,7 @@ import {
 import { Search, SlidersHorizontal, TrendingUp, TrendingDown } from 'lucide-react';
 import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { toast } from '@/hooks/use-toast';
 
 export default function CreditQueue() {
   const deals = getDealsByDepartment('credit');
@@ -29,7 +30,11 @@ export default function CreditQueue() {
       .from('applicant_debts')
       .select('deal_id, monthly_payment, debt_type, is_court_ordered')
       .in('deal_id', dealIds)
-      .then(({ data }) => {
+      .then(({ data, error }) => {
+        if (error) {
+          toast({ title: 'Could not load debts', description: error.message, variant: 'destructive' });
+          return;
+        }
         if (!data) return;
         const map = new Map<string, { totalMonthlyDebts: number; hasGarnishments: boolean; rentPayment: number; debtCount: number; debtTypes: Set<string> }>();
         for (const row of data) {

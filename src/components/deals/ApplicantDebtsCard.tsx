@@ -12,6 +12,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Scale, Plus, Trash2, Gavel, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
+import { isUuid, parseMoney } from '@/lib/guards';
+import { QueryError } from '@/components/QueryError';
 
 export type DebtType = 'garnishment' | 'child_support' | 'auto_loan' | 'student_loan' | 'credit_card' | 'mortgage' | 'medical' | 'rent' | 'other';
 
@@ -72,31 +74,44 @@ export function ApplicantDebtsCard({ dealId, customerId }: ApplicantDebtsCardPro
   });
   const queryClient = useQueryClient();
 
-  const { data: debts = [], isLoading } = useQuery({
+  const { data: debts = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: ['applicant-debts', dealId],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('applicant_debts')
         .select('*')
         .eq('deal_id', dealId)
-        .order('created_at', { ascending: true });
+        .order('created_at', { ascending: true })
+        .limit(100);
       if (error) throw error;
       return (data ?? []) as ApplicantDebt[];
     },
+    enabled: isUuid(dealId),
   });
 
   const addMutation = useMutation({
     mutationFn: async () => {
+      if (!isUuid(dealId) || !isUuid(customerId)) {
+        throw new Error('Cannot add a debt without a valid deal and customer.');
+      }
       if (!formData.debt_type || !formData.creditor_name || !formData.monthly_payment) {
         throw new Error('Required fields missing');
+      }
+      const monthlyPayment = parseMoney(formData.monthly_payment);
+      if (monthlyPayment === null || monthlyPayment < 0) {
+        throw new Error('Enter a valid monthly payment.');
+      }
+      const totalBalance = formData.total_balance ? parseMoney(formData.total_balance) : null;
+      if (formData.total_balance && totalBalance === null) {
+        throw new Error('Enter a valid balance or leave it blank.');
       }
       const { error } = await supabase.from('applicant_debts').insert({
         deal_id: dealId,
         customer_id: customerId,
         debt_type: formData.debt_type as any,
         creditor_name: formData.creditor_name,
-        monthly_payment: parseFloat(formData.monthly_payment),
-        total_balance: formData.total_balance ? parseFloat(formData.total_balance) : null,
+        monthly_payment: monthlyPayment,
+        total_balance: totalBalance,
         months_remaining: formData.months_remaining ? parseInt(formData.months_remaining) : null,
         is_court_ordered: formData.is_court_ordered,
         notes: formData.notes || null,
@@ -123,6 +138,9 @@ export function ApplicantDebtsCard({ dealId, customerId }: ApplicantDebtsCardPro
       queryClient.invalidateQueries({ queryKey: ['applicant-debts', dealId] });
       toast({ title: 'Debt Removed' });
     },
+    onError: (err: Error) => {
+      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    },
   });
 
   const totalMonthly = debts.reduce((s, d) => s + d.monthly_payment, 0);
@@ -143,6 +161,9 @@ export function ApplicantDebtsCard({ dealId, customerId }: ApplicantDebtsCardPro
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
+        {isError && (
+          <QueryError message={error instanceof Error ? error.message : 'Could not load debts.'} onRetry={() => refetch()} />
+        )}
         {/* Summary */}
         {debts.length > 0 && (
           <div className="grid grid-cols-3 gap-2 text-sm">

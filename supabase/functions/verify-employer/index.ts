@@ -1,24 +1,38 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import {
+  corsHeaders,
+  fetchWithRetry,
+  jsonResponse,
+  requireUser,
+} from "../_shared/auth.ts";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
-};
+function asTrimmedString(value: unknown, max: number): string {
+  if (typeof value !== "string") return "";
+  return value.trim().slice(0, max);
+}
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+    return new Response(null, { headers: corsHeaders(req) });
+  }
+
+  if (req.method !== "POST") {
+    return jsonResponse(req, { error: "Method not allowed" }, 405);
+  }
+
+  const { user, error: authError } = await requireUser(req);
+  if (!user) {
+    return jsonResponse(req, { error: authError ?? "Unauthorized" }, 401);
   }
 
   try {
-    const { employer, city, state } = await req.json();
+    const body = await req.json();
+    const employer = asTrimmedString(body?.employer, 200);
+    const city = asTrimmedString(body?.city, 80);
+    const state = asTrimmedString(body?.state, 40);
 
     if (!employer) {
-      return new Response(
-        JSON.stringify({ error: "Employer name is required" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return jsonResponse(req, { error: "Employer name is required" }, 400);
     }
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
@@ -28,7 +42,7 @@ serve(async (req) => {
 
     const locationContext = city && state ? ` located in ${city}, ${state}` : "";
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const response = await fetchWithRetry("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${LOVABLE_API_KEY}`,
@@ -89,16 +103,10 @@ serve(async (req) => {
 
     if (!response.ok) {
       if (response.status === 429) {
-        return new Response(
-          JSON.stringify({ error: "Rate limit exceeded, please try again later." }),
-          { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
+        return jsonResponse(req, { error: "Rate limit exceeded, please try again later." }, 429);
       }
       if (response.status === 402) {
-        return new Response(
-          JSON.stringify({ error: "Payment required, please add credits." }),
-          { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
+        return jsonResponse(req, { error: "Payment required, please add credits." }, 402);
       }
       const text = await response.text();
       console.error("AI gateway error:", response.status, text);
@@ -113,15 +121,13 @@ serve(async (req) => {
     }
 
     const result = JSON.parse(toolCall.function.arguments);
-
-    return new Response(JSON.stringify(result), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return jsonResponse(req, result);
   } catch (e) {
     console.error("verify-employer error:", e);
-    return new Response(
-      JSON.stringify({ error: e instanceof Error ? e.message : "Unknown error" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    return jsonResponse(
+      req,
+      { error: e instanceof Error ? e.message : "Unknown error" },
+      500,
     );
   }
 });
