@@ -3,7 +3,8 @@
 // unavailable). Everything is configured with secrets, so models can change without code:
 //
 //   OPENROUTER_API_KEY     required
-//   AI_MODELS              comma-separated chain used for every document
+//   AI_MODELS              comma-separated chain used for every document. OpenRouter takes
+//                          3 models per request, so longer chains are sent 3 at a time.
 //   AI_ESCALATION_MODELS   chain used to re-read a document the first pass was unsure about
 //   AI_DATA_COLLECTION     "allow" (default) or "deny" — deny = only providers that don't keep data
 //   AI_ZDR                 "true" to restrict to zero-data-retention endpoints
@@ -108,9 +109,37 @@ export interface JsonCallResult {
   model: string;
 }
 
+/** OpenRouter accepts at most this many models per request (`models` array). */
+export const MAX_MODELS_PER_REQUEST = 3;
+
+/** Split a chain into the batches sent one after another. */
+export function modelBatches(models: string[], size = MAX_MODELS_PER_REQUEST): string[][] {
+  const out: string[][] = [];
+  for (let i = 0; i < models.length; i += size) out.push(models.slice(i, i + size));
+  return out;
+}
+
+/** A bad or unauthorised key fails the same way for every model, so don't try the rest. */
+const isFinal = (status: number) => status === 401 || status === 403;
+
 export async function callJson(cfg: AiConfig, opts: JsonCallOptions): Promise<JsonCallResult> {
-  const doFetch = opts.fetchImpl ?? fetch;
   const models = opts.models?.length ? opts.models : cfg.models;
+  const batches = cfg.provider === "openrouter" ? modelBatches(models) : [models.slice(0, 1)];
+  let lastError: AiError | null = null;
+  for (const batch of batches) {
+    try {
+      return await callBatch(cfg, opts, batch);
+    } catch (e) {
+      const err = e instanceof AiError ? e : new AiError(e instanceof Error ? e.message : String(e), 502);
+      if (isFinal(err.status)) throw err;
+      lastError = err;
+    }
+  }
+  throw lastError ?? new AiError("No AI models configured", 500);
+}
+
+async function callBatch(cfg: AiConfig, opts: JsonCallOptions, models: string[]): Promise<JsonCallResult> {
+  const doFetch = opts.fetchImpl ?? fetch;
   const isOpenRouter = cfg.provider === "openrouter";
   const content = isOpenRouter ? opts.content : opts.content.filter((p) => p.type !== "file");
 

@@ -9,7 +9,7 @@ async function assertRejects(fn: () => Promise<unknown>, cls: new (...a: never[]
 }
 import { classifyByFilename, isUnsure, needsAi, normalizeReading, toAmount } from "./classify.ts";
 import { computeAutoFill, employersMatch, monthlyFromPeriod, pickSource, ytdMonthsAt } from "./income.ts";
-import { aiConfigFromEnv, AiError, callJson, DEFAULT_MODELS, parseJsonReply } from "./ai.ts";
+import { aiConfigFromEnv, AiError, callJson, DEFAULT_MODELS, modelBatches, parseJsonReply } from "./ai.ts";
 
 Deno.test("file names sort documents in English and French", () => {
   const cases: [string, string | null][] = [
@@ -160,4 +160,25 @@ Deno.test("OpenRouter request carries the fallback chain, privacy setting and fr
   const limited = (async () => new Response(JSON.stringify({ error: { message: "slow down", code: 429 } }), { status: 429 })) as unknown as typeof fetch;
   const err = await assertRejects(() => callJson(cfg, { system: "s", content: [], fetchImpl: limited }), AiError);
   assertEquals((err as AiError).status, 429);
+});
+
+Deno.test("long chains go out three models at a time and move on when a batch fails", async () => {
+  assertEquals(modelBatches(["a", "b", "c", "d", "e"]), [["a", "b", "c"], ["d", "e"]]);
+  const cfg = aiConfigFromEnv((k) => ({ OPENROUTER_API_KEY: "sk", AI_MODELS: "f1:free,f2:free,r,p1,p2" } as Record<string, string>)[k])!;
+  const seen: string[][] = [];
+  const fakeFetch = (async (_url: string, init: RequestInit) => {
+    const body = JSON.parse(String(init.body));
+    seen.push(body.models ?? [body.model]);
+    if (seen.length === 1) return new Response(JSON.stringify({ error: { message: "rate-limited upstream", code: 429 } }), { status: 429 });
+    return new Response(JSON.stringify({ model: "p1", choices: [{ message: { content: '{"ok":true}' } }] }));
+  }) as unknown as typeof fetch;
+  const r = await callJson(cfg, { system: "s", content: [{ type: "text", text: "t" }], fetchImpl: fakeFetch });
+  assertEquals(seen, [["f1:free", "f2:free", "r"], ["p1", "p2"]]);
+  assertEquals(r.model, "p1");
+
+  let calls = 0;
+  const badKey = (async () => { calls++; return new Response(JSON.stringify({ error: { message: "No auth", code: 401 } }), { status: 401 }); }) as unknown as typeof fetch;
+  const err = await assertRejects(() => callJson(cfg, { system: "s", content: [], fetchImpl: badKey }), AiError);
+  assertEquals((err as AiError).status, 401);
+  assertEquals(calls, 1);
 });

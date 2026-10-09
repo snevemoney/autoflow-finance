@@ -74,7 +74,7 @@ these three because each one checks the caller itself.
 | Secret | Value |
 |---|---|
 | `OPENROUTER_API_KEY` | **Required.** Your OpenRouter key. |
-| `AI_MODELS` | Optional. A comma-separated chain, tried in order (free models first). |
+| `AI_MODELS` | Optional. A comma-separated chain, tried in order (free models first). OpenRouter takes 3 models per request, so a longer chain is sent 3 at a time. |
 | `AI_ESCALATION_MODELS` | Optional. The chain for re-reading documents the first pass was unsure about. |
 | `AI_DATA_COLLECTION` | `deny` keeps live borrower files away from providers that store or train on prompts. Free endpoints are usually excluded by this. |
 | `AI_ZDR` | `true` limits calls to zero-data-retention endpoints. |
