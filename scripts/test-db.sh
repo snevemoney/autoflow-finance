@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Runs every migration on a throwaway Postgres database (with Supabase stand-ins),
-# then the automation/RLS test suite. Needs a local Postgres you can reach with psql.
-#   PGHOST/PGUSER/... are respected; default: local socket as the current user.
+# Runs every migration in supabase/migrations on a throwaway Postgres database (with
+# Supabase stand-ins), then the automation/RLS test suites. Needs a local Postgres you can
+# reach with psql. PGHOST/PGUSER/... are respected; default: local socket as the current user.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 DB=${TEST_DB:-autoflow_test}

@@ -168,7 +168,7 @@ export default function Settings() {
             <Card>
               <CardHeader>
                 <CardTitle>AI service</CardTitle>
-                <CardDescription>All AI runs through one OpenRouter key, set as a backend secret (never in the browser).</CardDescription>
+                <CardDescription>All AI runs through one OpenRouter key, kept on the server in Supabase (an edge-function secret or the encrypted Vault), never in the browser.</CardDescription>
               </CardHeader>
               <CardContent className="text-sm text-muted-foreground space-y-2">
                 <p><span className="font-mono text-foreground">OPENROUTER_API_KEY</span> — required.</p>

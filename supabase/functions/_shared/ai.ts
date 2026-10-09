@@ -1,6 +1,6 @@
 // One AI client for every automation. All models are reached through OpenRouter with a
 // priority-ordered fallback chain (free models first, paid ones only if the free ones are
-// unavailable). Everything is configured with secrets, so models can change without code:
+// unavailable). Everything is configured outside the code, so models can change freely:
 //
 //   OPENROUTER_API_KEY     required
 //   AI_MODELS              comma-separated chain used for every document. OpenRouter takes
@@ -8,8 +8,14 @@
 //   AI_ESCALATION_MODELS   chain used to re-read a document the first pass was unsure about
 //   AI_DATA_COLLECTION     "allow" (default) or "deny" — deny = only providers that don't keep data
 //   AI_ZDR                 "true" to restrict to zero-data-retention endpoints
+//   APP_URL                optional, sent to OpenRouter for attribution
 //
-// If no OpenRouter key is set, the gateway the project already had (LOVABLE_API_KEY) is used.
+// Each setting is read from the edge-function secrets first, then from Supabase Vault
+// (see loadAiConfig), so it can be managed from either place.
+
+export const AI_SETTING_KEYS = [
+  "OPENROUTER_API_KEY", "AI_MODELS", "AI_ESCALATION_MODELS", "AI_DATA_COLLECTION", "AI_ZDR", "APP_URL",
+] as const;
 
 export const DEFAULT_MODELS = [
   "google/gemma-4-31b-it:free",
@@ -22,8 +28,6 @@ export const DEFAULT_ESCALATION_MODELS = [
 ];
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-const LEGACY_GATEWAY_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
-const LEGACY_MODEL = "google/gemini-3-flash-preview";
 
 export type ContentPart =
   | { type: "text"; text: string }
@@ -31,7 +35,6 @@ export type ContentPart =
   | { type: "file"; file: { filename: string; file_data: string } };
 
 export interface AiConfig {
-  provider: "openrouter" | "legacy";
   apiKey: string;
   models: string[];
   escalationModels: string[];
@@ -52,26 +55,49 @@ const list = (v: string | undefined, fallback: string[]) => {
 };
 
 export function aiConfigFromEnv(get: (key: string) => string | undefined): AiConfig | null {
-  const openrouter = get("OPENROUTER_API_KEY");
-  if (openrouter) {
-    return {
-      provider: "openrouter",
-      apiKey: openrouter,
-      models: list(get("AI_MODELS"), DEFAULT_MODELS),
-      escalationModels: list(get("AI_ESCALATION_MODELS"), DEFAULT_ESCALATION_MODELS),
-      dataCollection: get("AI_DATA_COLLECTION") === "deny" ? "deny" : "allow",
-      zdr: get("AI_ZDR") === "true",
-      appUrl: get("APP_URL"),
-    };
+  const apiKey = get("OPENROUTER_API_KEY");
+  if (!apiKey) return null;
+  return {
+    apiKey,
+    models: list(get("AI_MODELS"), DEFAULT_MODELS),
+    escalationModels: list(get("AI_ESCALATION_MODELS"), DEFAULT_ESCALATION_MODELS),
+    dataCollection: get("AI_DATA_COLLECTION") === "deny" ? "deny" : "allow",
+    zdr: get("AI_ZDR") === "true",
+    appUrl: get("APP_URL"),
+  };
+}
+
+/** Reads the settings stored in Supabase Vault (service role only, via public.get_ai_settings). */
+export type VaultReader = () => Promise<Record<string, string>>;
+
+let vaultCache: { at: number; values: Record<string, string> } | null = null;
+const VAULT_TTL_MS = 5 * 60_000;
+
+/**
+ * Settings come from the function secrets first; anything not set there is read from the
+ * vault (cached for five minutes per function instance, so a vault change applies quickly).
+ */
+export async function loadAiConfig(env: (key: string) => string | undefined, readVault?: VaultReader): Promise<AiConfig | null> {
+  let vault: Record<string, string> = {};
+  const missing = AI_SETTING_KEYS.some((k) => !env(k));
+  if (missing && readVault) {
+    if (vaultCache && Date.now() - vaultCache.at < VAULT_TTL_MS) {
+      vault = vaultCache.values;
+    } else {
+      try {
+        vault = await readVault();
+        vaultCache = { at: Date.now(), values: vault };
+      } catch (e) {
+        console.warn("AI settings: vault not readable", e instanceof Error ? e.message : e);
+      }
+    }
   }
-  const legacy = get("LOVABLE_API_KEY");
-  if (legacy) {
-    return {
-      provider: "legacy", apiKey: legacy, models: [LEGACY_MODEL], escalationModels: [],
-      dataCollection: "allow", zdr: false,
-    };
-  }
-  return null;
+  return aiConfigFromEnv((k) => env(k) || vault[k] || undefined);
+}
+
+/** For tests. */
+export function clearAiConfigCache() {
+  vaultCache = null;
 }
 
 /** Pull the first JSON object out of a model reply (handles ```json fences and chatter). */
@@ -124,7 +150,7 @@ const isFinal = (status: number) => status === 401 || status === 403;
 
 export async function callJson(cfg: AiConfig, opts: JsonCallOptions): Promise<JsonCallResult> {
   const models = opts.models?.length ? opts.models : cfg.models;
-  const batches = cfg.provider === "openrouter" ? modelBatches(models) : [models.slice(0, 1)];
+  const batches = modelBatches(models);
   let lastError: AiError | null = null;
   for (const batch of batches) {
     try {
@@ -140,38 +166,31 @@ export async function callJson(cfg: AiConfig, opts: JsonCallOptions): Promise<Js
 
 async function callBatch(cfg: AiConfig, opts: JsonCallOptions, models: string[]): Promise<JsonCallResult> {
   const doFetch = opts.fetchImpl ?? fetch;
-  const isOpenRouter = cfg.provider === "openrouter";
-  const content = isOpenRouter ? opts.content : opts.content.filter((p) => p.type !== "file");
-
   const body: Record<string, unknown> = {
     model: models[0],
     messages: [
       { role: "system", content: opts.system },
-      { role: "user", content },
+      { role: "user", content: opts.content },
     ],
     temperature: 0,
     max_tokens: opts.maxTokens ?? 900,
     response_format: { type: "json_object" },
-  };
-  if (isOpenRouter) {
-    if (models.length > 1) body.models = models;
-    body.provider = {
+    provider: {
       data_collection: cfg.dataCollection,
       ...(cfg.zdr ? { zdr: true } : {}),
-    };
-    if (opts.hasPdf) body.plugins = [{ id: "file-parser", pdf: { engine: "cloudflare-ai" } }];
-  }
+    },
+  };
+  if (models.length > 1) body.models = models;
+  if (opts.hasPdf) body.plugins = [{ id: "file-parser", pdf: { engine: "cloudflare-ai" } }];
 
   const headers: Record<string, string> = {
     Authorization: `Bearer ${cfg.apiKey}`,
     "Content-Type": "application/json",
+    "X-Title": "AutoFlow",
   };
-  if (isOpenRouter) {
-    headers["X-Title"] = "AutoFlow";
-    if (cfg.appUrl) headers["HTTP-Referer"] = cfg.appUrl;
-  }
+  if (cfg.appUrl) headers["HTTP-Referer"] = cfg.appUrl;
 
-  const res = await doFetch(isOpenRouter ? OPENROUTER_URL : LEGACY_GATEWAY_URL, {
+  const res = await doFetch(OPENROUTER_URL, {
     method: "POST",
     headers,
     body: JSON.stringify(body),

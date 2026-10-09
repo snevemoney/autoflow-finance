@@ -9,7 +9,7 @@ async function assertRejects(fn: () => Promise<unknown>, cls: new (...a: never[]
 }
 import { classifyByFilename, isUnsure, needsAi, normalizeReading, toAmount } from "./classify.ts";
 import { computeAutoFill, employersMatch, monthlyFromPeriod, pickSource, ytdMonthsAt } from "./income.ts";
-import { aiConfigFromEnv, AiError, callJson, DEFAULT_MODELS, modelBatches, parseJsonReply } from "./ai.ts";
+import { aiConfigFromEnv, AiError, callJson, clearAiConfigCache, DEFAULT_MODELS, loadAiConfig, modelBatches, parseJsonReply } from "./ai.ts";
 
 Deno.test("file names sort documents in English and French", () => {
   const cases: [string, string | null][] = [
@@ -126,15 +126,34 @@ Deno.test("documents are matched to the right income source", () => {
   assertEquals(pickSource("x", []), null);
 });
 
-Deno.test("AI config: OpenRouter first, legacy gateway as fallback, secrets override models", () => {
+Deno.test("AI config: needs an OpenRouter key; secrets override the default models", () => {
   const env = (o: Record<string, string>) => (k: string) => o[k];
   assertEquals(aiConfigFromEnv(env({})), null);
-  assertEquals(aiConfigFromEnv(env({ LOVABLE_API_KEY: "l" }))?.provider, "legacy");
-  const cfg = aiConfigFromEnv(env({ OPENROUTER_API_KEY: "k", LOVABLE_API_KEY: "l", AI_MODELS: "a/free:free, b/paid", AI_DATA_COLLECTION: "deny" }))!;
-  assertEquals(cfg.provider, "openrouter");
+  const cfg = aiConfigFromEnv(env({ OPENROUTER_API_KEY: "k", AI_MODELS: "a/free:free, b/paid", AI_DATA_COLLECTION: "deny" }))!;
+  assertEquals(cfg.apiKey, "k");
   assertEquals(cfg.models, ["a/free:free", "b/paid"]);
   assertEquals(cfg.dataCollection, "deny");
   assertEquals(aiConfigFromEnv(env({ OPENROUTER_API_KEY: "k" }))!.models, DEFAULT_MODELS);
+});
+
+Deno.test("AI settings: function secrets win, the vault fills the gaps, and is cached", async () => {
+  clearAiConfigCache();
+  let reads = 0;
+  const vault = async () => { reads++; return { OPENROUTER_API_KEY: "vault-key", AI_MODELS: "v/one,v/two", AI_DATA_COLLECTION: "deny" }; };
+  const fromVault = await loadAiConfig(() => undefined, vault);
+  assertEquals(fromVault?.apiKey, "vault-key");
+  assertEquals(fromVault?.models, ["v/one", "v/two"]);
+  assertEquals(fromVault?.dataCollection, "deny");
+  const mixed = await loadAiConfig((k) => (k === "AI_MODELS" ? "env/model" : undefined), vault);
+  assertEquals(mixed?.apiKey, "vault-key");
+  assertEquals(mixed?.models, ["env/model"]);
+  assertEquals(reads, 1); // second call used the cache
+
+  clearAiConfigCache();
+  const failing = async () => { throw new Error("no access"); };
+  assertEquals(await loadAiConfig(() => undefined, failing), null);
+  assertEquals((await loadAiConfig((k) => (k === "OPENROUTER_API_KEY" ? "env-key" : undefined), failing))?.apiKey, "env-key");
+  clearAiConfigCache();
 });
 
 Deno.test("JSON is pulled out of fenced or chatty replies", () => {

@@ -112,6 +112,16 @@ ALTER TABLE public.deals
   ADD COLUMN IF NOT EXISTS status_changed_at timestamptz NOT NULL DEFAULT now(),
   ADD COLUMN IF NOT EXISTS last_routed_at timestamptz;
 
+-- Existing deals: start their time-in-stage clock from their last update, and record the
+-- credit approval that deals already past credit review were given before decisions
+-- were stored. Runs before the routing triggers exist, so nothing is re-routed.
+UPDATE public.deals SET status_changed_at = COALESCE(updated_at, created_at)
+WHERE status_changed_at > COALESCE(updated_at, created_at);
+UPDATE public.deals SET credit_decision = 'approved'
+WHERE credit_decision = 'pending'
+  AND status IN ('income_verification', 'funding_review', 'approved', 'funded');
+
+
 ALTER TABLE public.income_sources
   ADD COLUMN IF NOT EXISTS gross_per_period numeric,
   ADD COLUMN IF NOT EXISTS auto_filled_at timestamptz,

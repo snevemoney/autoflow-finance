@@ -1,7 +1,7 @@
 // verify-employer — quick plausibility check that an employer is a real, operating business.
 import { corsHeaders, json } from "../_shared/http.ts";
-import { requireStaff } from "../_shared/auth.ts";
-import { AiError, aiConfigFromEnv, callJson } from "../_shared/ai.ts";
+import { aiConfig, requireStaff } from "../_shared/auth.ts";
+import { AiError, callJson } from "../_shared/ai.ts";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -11,8 +11,8 @@ Deno.serve(async (req) => {
   try {
     const { employer, city, state } = await req.json();
     if (!employer) return json({ error: "Employer name is required" }, 400);
-    const cfg = aiConfigFromEnv((k) => Deno.env.get(k));
-    if (!cfg) return json({ error: "AI is not configured (set OPENROUTER_API_KEY)" }, 503);
+    const cfg = await aiConfig(staff.admin);
+    if (!cfg) return json({ error: "AI is not configured (OPENROUTER_API_KEY is not set)" }, 503);
 
     const where = city && state ? ` located in ${city}, ${state}` : "";
     const r = await callJson(cfg, {

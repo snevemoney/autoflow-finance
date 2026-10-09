@@ -1,8 +1,8 @@
 // extract-income-data — read income figures from one pay stub / statement image or PDF.
 // Kept for direct calls; uploads are processed automatically by process-document.
 import { corsHeaders, json } from "../_shared/http.ts";
-import { requireStaff } from "../_shared/auth.ts";
-import { AiError, aiConfigFromEnv, callJson, type ContentPart } from "../_shared/ai.ts";
+import { aiConfig, requireStaff } from "../_shared/auth.ts";
+import { AiError, callJson, type ContentPart } from "../_shared/ai.ts";
 import { normalizeReading, SYSTEM_PROMPT, userPrompt } from "../_shared/classify.ts";
 
 Deno.serve(async (req) => {
@@ -13,8 +13,8 @@ Deno.serve(async (req) => {
   try {
     const { imageBase64, imageUrl, mimeType, fileName } = await req.json();
     if (!imageBase64 && !imageUrl) return json({ error: "Either imageBase64 or imageUrl is required" }, 400);
-    const cfg = aiConfigFromEnv((k) => Deno.env.get(k));
-    if (!cfg) return json({ error: "AI is not configured (set OPENROUTER_API_KEY)" }, 503);
+    const cfg = await aiConfig(staff.admin);
+    if (!cfg) return json({ error: "AI is not configured (OPENROUTER_API_KEY is not set)" }, 503);
 
     const mime = mimeType || "image/jpeg";
     const isPdf = mime === "application/pdf";

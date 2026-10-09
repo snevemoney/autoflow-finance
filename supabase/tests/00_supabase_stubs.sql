@@ -49,3 +49,7 @@ GRANT SELECT ON auth.users TO service_role;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO anon, authenticated, service_role;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO anon, authenticated, service_role;
+
+-- Vault stand-in: in Supabase, vault.decrypted_secrets decrypts vault.secrets on read.
+CREATE SCHEMA IF NOT EXISTS vault;
+CREATE TABLE IF NOT EXISTS vault.decrypted_secrets (name text PRIMARY KEY, decrypted_secret text);

@@ -6,7 +6,8 @@
 //      closes or opens dealer requests, and routes the deal (see the SQL triggers)
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders, json, toBase64 } from "../_shared/http.ts";
-import { AiError, aiConfigFromEnv, callJson, type AiConfig, type ContentPart } from "../_shared/ai.ts";
+import { AiError, callJson, type AiConfig, type ContentPart } from "../_shared/ai.ts";
+import { aiConfig } from "../_shared/auth.ts";
 import {
   classifyByFilename, INCOME_TYPES, isUnsure, needsAi, normalizeReading, SYSTEM_PROMPT, userPrompt,
   type DocumentReading, type DocumentType,
@@ -119,7 +120,7 @@ async function processDocument(admin: SupabaseClient, doc: Doc) {
   }
 
   // ---- 2. AI read, only if the name wasn't enough or there is income to read
-  const cfg = aiConfigFromEnv((k) => Deno.env.get(k));
+  const cfg = await aiConfig(admin);
   let reading: DocumentReading | null = null;
   let model: string | null = null;
   const wantAi = (autoSort && !pickedByPerson && type === "other") || (autoFill && needsAi(type, true) && type !== "other");
@@ -154,7 +155,7 @@ async function processDocument(admin: SupabaseClient, doc: Doc) {
   const status = wantAi && !cfg ? "skipped" : "done";
   await admin.from("documents").update({
     processing_status: status,
-    processing_error: status === "skipped" ? "AI is not configured (set OPENROUTER_API_KEY)" : null,
+    processing_error: status === "skipped" ? "AI is not configured (OPENROUTER_API_KEY is not set)" : null,
     processed_at: new Date().toISOString(),
   }).eq("id", doc.id);
 

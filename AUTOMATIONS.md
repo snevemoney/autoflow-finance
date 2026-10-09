@@ -46,48 +46,67 @@ each manual move is logged on the timeline.
 - **Free PDF text.** PDFs are converted to text by OpenRouter's free parser. The first page is
   also sent as an image, rendered in the browser at upload, so scanned PDFs can still be read.
 
-## Setup (Lovable Cloud / Supabase)
+## Setup (Supabase + Vercel)
 
-### 1. Apply the database migrations
+### 1. Database schema
 
-Run these two files, in order, in the SQL editor:
+Every schema change is a file in `supabase/migrations`, applied in file order:
 
-- `supabase/migrations/20261009050000_autoflow_enums.sql`
-- `supabase/migrations/20261009050100_autoflow_end_to_end.sql`
+```bash
+supabase link --project-ref <project-ref>
+supabase db push
+```
 
-Pushing to GitHub does not apply them. Ask Lovable to "apply the pending migrations", or paste
-each file into Cloud → Database → SQL editor.
-
-The second migration:
+`20261009050100_autoflow_end_to_end.sql`:
 - turns every existing account into an **admin**, so nobody is locked out;
 - makes the very first sign-up on a fresh database an admin;
 - leaves later sign-ups waiting on the **Almost there** screen until an admin gives them a role.
 
+Change the schema with a new migration file, never by editing an applied one.
+
 ### 2. Deploy the edge functions
 
-Deploy `process-document`, `extract-income-data` and `verify-employer`. Lovable deploys
-functions on its own after a sync. `supabase/config.toml` turns off the gateway JWT check for
-these three because each one checks the caller itself.
+```bash
+supabase functions deploy process-document extract-income-data verify-employer
+```
 
-### 3. Set the AI secrets (Cloud → Secrets)
+`supabase/config.toml` turns off the gateway JWT check for these three, because each one
+checks the caller itself (staff, or the dealer who owns the deal).
 
-| Secret | Value |
+### 3. AI settings
+
+Each setting is read from the edge-function secrets first (Supabase → Edge Functions →
+Secrets), then from **Supabase Vault**, which is encrypted at rest. Only the edge functions
+can read the Vault copy, through `public.get_ai_settings()`. Use whichever is easier:
+
+```sql
+select vault.create_secret('<value>', 'OPENROUTER_API_KEY');   -- add
+select vault.update_secret(id, '<value>') from vault.secrets where name = 'OPENROUTER_API_KEY';  -- change
+```
+
+| Setting | Value |
 |---|---|
 | `OPENROUTER_API_KEY` | **Required.** Your OpenRouter key. |
 | `AI_MODELS` | Optional. A comma-separated chain, tried in order (free models first). OpenRouter takes 3 models per request, so a longer chain is sent 3 at a time. |
 | `AI_ESCALATION_MODELS` | Optional. The chain for re-reading documents the first pass was unsure about. |
 | `AI_DATA_COLLECTION` | `deny` keeps live borrower files away from providers that store or train on prompts. Free endpoints are usually excluded by this. |
 | `AI_ZDR` | `true` limits calls to zero-data-retention endpoints. |
-| `APP_URL` | Optional. Your app URL, sent to OpenRouter for attribution. |
+| `APP_URL` | Optional. Your site URL, sent to OpenRouter for attribution. |
 
-If `OPENROUTER_API_KEY` is not set, AutoFlow falls back to the project's built-in AI gateway
-(`LOVABLE_API_KEY`).
+A Vault change takes effect within five minutes. OpenRouter's free (`:free`) models allow
+20 requests a minute and 50 a day. The daily limit rises to 1,000 once at least $10 of credits
+has been bought. When the free models are rate-limited, the chain moves on to the paid models
+after them.
 
-OpenRouter's free (`:free`) models allow 20 requests a minute and 50 requests a day. The daily
-limit rises to 1,000 once at least $10 of credits has been bought on the account. When the free
-models are rate-limited, the chain moves on to the paid models after them.
+### 4. Site (Vercel)
 
-### 4. Users and dealers
+Import the GitHub repo in Vercel. `vercel.json` sets the build and single-page-app routing,
+and the public Supabase URL and key come from `.env`. Every push to `main` then deploys.
+
+In Supabase → Authentication → URL Configuration, set **Site URL** to the Vercel address and
+add it under **Redirect URLs**, so sign-up and password emails link back to the site.
+
+### 5. Users and dealers
 
 - **Staff:** an admin opens **Users** and gives each person a role: Credit Analyst,
   Income Verifier, Funding Manager or Admin.
@@ -96,7 +115,7 @@ models are rate-limited, the chain moves on to the paid models after them.
   From then on they only see their own dealership's deals, documents, requests and the notes
   marked "Visible to dealer".
 
-### 5. Storage
+### 6. Storage
 
 Documents live in the private `documents` bucket under `<deal_id>/…`. Access follows the deal:
 staff see everything, and a dealer sees only their own dealership's files. The browser opens
@@ -106,7 +125,7 @@ files through short-lived signed links.
 
 ```bash
 npm test                # unit tests (dashboard metrics)
-npm run test:db         # every migration and an end-to-end deal-flow test on a local Postgres 16
+npm run test:db         # every migration plus the deal-flow, access and AI-settings tests on a local Postgres 16
 npm run test:functions  # Deno tests for sorting, income maths and the AI request (needs deno)
 ```
 

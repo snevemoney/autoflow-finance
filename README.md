@@ -9,78 +9,42 @@
 
 ---
 
-**Automations, setup and tests:** see [AUTOMATIONS.md](AUTOMATIONS.md) — dealer portal, document auto-sort, income auto-fill, missing-document requests and queue routing through to Funded.
+AutoFlow takes an auto-loan deal from the dealer's submission to a funded loan. Dealers
+submit deals and documents in their own portal; AutoFlow sorts the documents, reads pay
+stubs into the income calculator, asks the dealer for anything missing and moves each deal
+to the next department as soon as its step is done. Credit, income and funding decisions
+stay with people.
 
-# Welcome to your Lovable project
+**How the automations work, setup and tests:** [AUTOMATIONS.md](AUTOMATIONS.md)
 
-## Project info
+## Stack
 
-**URL**: https://lovable.dev/projects/06553e55-1803-4b97-9b27-83ba3ec8ef9b
+- React + Vite + TypeScript, Tailwind and shadcn/ui
+- Supabase: Postgres (routing rules, row-level security), Auth, Storage, Edge Functions
+- AI through OpenRouter (free models first, paid ones only as a fallback)
+- Hosted on Vercel; the database, files and functions live in your own Supabase project
 
-## How can I edit this code?
+## Run it locally
 
-There are several ways of editing your application.
-
-**Use Lovable**
-
-Simply visit the [Lovable Project](https://lovable.dev/projects/06553e55-1803-4b97-9b27-83ba3ec8ef9b) and start prompting.
-
-Changes made via Lovable will be committed automatically to this repo.
-
-**Use your preferred IDE**
-
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
-
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
+```bash
+npm install
+npm run dev          # http://localhost:8080, uses the Supabase project in .env
 ```
 
-**Edit a file directly in GitHub**
+`.env` holds the project URL and publishable key. Both are public by design: what each user
+can see is enforced by row-level security in the database, not by hiding these values.
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+## Deploy
 
-**Use GitHub Codespaces**
+- **Site:** every push to `main` deploys on Vercel (`vercel.json` sets up the single-page app).
+- **Database:** new files in `supabase/migrations` are applied with `supabase db push`.
+- **Edge functions:** `supabase functions deploy process-document extract-income-data verify-employer`.
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+## Checks
 
-## What technologies are used for this project?
-
-This project is built with:
-
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
-
-## How can I deploy this project?
-
-Simply open [Lovable](https://lovable.dev/projects/06553e55-1803-4b97-9b27-83ba3ec8ef9b) and click on Share -> Publish.
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+```bash
+npm test               # unit tests
+npm run test:db        # every migration plus the deal-flow and access tests on a local Postgres
+npm run test:functions # edge-function tests (needs deno)
+npm run build
+```
