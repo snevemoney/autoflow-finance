@@ -19,6 +19,7 @@ export type Database = {
           automations: Json
           funding_checklist_items: Json
           id: boolean
+          preferences: Json
           updated_at: string
           updated_by: string | null
         }
@@ -26,6 +27,7 @@ export type Database = {
           automations?: Json
           funding_checklist_items?: Json
           id?: boolean
+          preferences?: Json
           updated_at?: string
           updated_by?: string | null
         }
@@ -33,6 +35,7 @@ export type Database = {
           automations?: Json
           funding_checklist_items?: Json
           id?: boolean
+          preferences?: Json
           updated_at?: string
           updated_by?: string | null
         }
@@ -258,6 +261,13 @@ export type Database = {
             foreignKeyName: "dealer_users_dealer_id_fkey"
             columns: ["dealer_id"]
             isOneToOne: false
+            referencedRelation: "dealer_stats"
+            referencedColumns: ["dealer_id"]
+          },
+          {
+            foreignKeyName: "dealer_users_dealer_id_fkey"
+            columns: ["dealer_id"]
+            isOneToOne: false
             referencedRelation: "dealers"
             referencedColumns: ["id"]
           },
@@ -333,6 +343,7 @@ export type Database = {
           flags: string[] | null
           funded_amount: number | null
           funded_at: string | null
+          funding_checklist: Json
           id: string
           loan_amount: number
           ltv: number | null
@@ -376,6 +387,7 @@ export type Database = {
           flags?: string[] | null
           funded_amount?: number | null
           funded_at?: string | null
+          funding_checklist?: Json
           id?: string
           loan_amount: number
           ltv?: number | null
@@ -419,6 +431,7 @@ export type Database = {
           flags?: string[] | null
           funded_amount?: number | null
           funded_at?: string | null
+          funding_checklist?: Json
           id?: string
           loan_amount?: number
           ltv?: number | null
@@ -453,6 +466,13 @@ export type Database = {
             foreignKeyName: "deals_dealer_id_fkey"
             columns: ["dealer_id"]
             isOneToOne: false
+            referencedRelation: "dealer_stats"
+            referencedColumns: ["dealer_id"]
+          },
+          {
+            foreignKeyName: "deals_dealer_id_fkey"
+            columns: ["dealer_id"]
+            isOneToOne: false
             referencedRelation: "dealers"
             referencedColumns: ["id"]
           },
@@ -473,7 +493,9 @@ export type Database = {
           doc_type: string
           fulfilled_at: string | null
           id: string
+          label: string | null
           message: string | null
+          source: string
           status: string
         }
         Insert: {
@@ -483,7 +505,9 @@ export type Database = {
           doc_type: string
           fulfilled_at?: string | null
           id?: string
+          label?: string | null
           message?: string | null
+          source?: string
           status?: string
         }
         Update: {
@@ -493,7 +517,9 @@ export type Database = {
           doc_type?: string
           fulfilled_at?: string | null
           id?: string
+          label?: string | null
           message?: string | null
+          source?: string
           status?: string
         }
         Relationships: [
@@ -925,15 +951,53 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      dealer_stats: {
+        Row: {
+          active_deals: number | null
+          dealer_id: string | null
+          funded_deals: number | null
+          total_deals: number | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
+      approve_funding: {
+        Args: { _deal_id: string; _notes?: string }
+        Returns: Database["public"]["Enums"]["deal_status"]
+      }
+      deal_checklist: { Args: { _deal_id: string }; Returns: Json }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
           _user_id: string
         }
         Returns: boolean
+      }
+      mark_funded: {
+        Args: { _amount?: number; _deal_id: string }
+        Returns: Database["public"]["Enums"]["deal_status"]
+      }
+      record_credit_decision: {
+        Args: {
+          _bureau?: Database["public"]["Enums"]["credit_bureau"]
+          _deal_id: string
+          _decision: string
+          _notes?: string
+          _score?: number
+          _tier?: Database["public"]["Enums"]["credit_tier"]
+        }
+        Returns: Database["public"]["Enums"]["deal_status"]
+      }
+      request_document: {
+        Args: { _deal_id: string; _doc_type: string; _message?: string }
+        Returns: string
+      }
+      request_missing_documents: { Args: { _deal_id: string }; Returns: number }
+      submit_deal: { Args: { _payload: Json }; Returns: string }
+      update_funding_checklist: {
+        Args: { _deal_id: string; _items: Json }
+        Returns: undefined
       }
     }
     Enums: {
@@ -1002,6 +1066,8 @@ export type Database = {
         | "note_added"
         | "assignment"
         | "email_sent"
+        | "automation"
+        | "document_request"
       vehicle_condition: "new" | "used" | "certified"
     }
     CompositeTypes: {
@@ -1201,6 +1267,8 @@ export const Constants = {
         "note_added",
         "assignment",
         "email_sent",
+        "automation",
+        "document_request",
       ],
       vehicle_condition: ["new", "used", "certified"],
     },
