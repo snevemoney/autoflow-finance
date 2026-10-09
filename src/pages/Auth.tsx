@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -9,10 +9,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from '@/hooks/use-toast';
 import { Navigate } from 'react-router-dom';
+import { BrandMark } from '@/components/layout/AppSidebar';
 
 export default function Auth() {
   const { session } = useAuth();
   const navigate = useNavigate();
+  const [params] = useSearchParams();
   const [loading, setLoading] = useState(false);
 
   // Login state
@@ -58,19 +60,20 @@ export default function Auth() {
     if (error) {
       toast({ title: 'Signup failed', description: error.message, variant: 'destructive' });
     } else {
-      toast({ title: 'Check your email', description: 'A confirmation link has been sent to your email.' });
+      toast({ title: 'Check your email', description: 'Confirm your address, then sign in. An administrator will give you access (dealers are linked to their dealership).' });
     }
   };
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background p-4">
       <Card className="w-full max-w-md">
-        <CardHeader className="text-center">
-          <CardTitle className="text-2xl font-display">AutoFinance</CardTitle>
-          <CardDescription>Sign in to access the platform</CardDescription>
+        <CardHeader className="text-center space-y-4">
+          <div className="mx-auto rounded-xl bg-sidebar px-4 py-3"><BrandMark subtitle="From dealer to funded" /></div>
+          <CardTitle className="sr-only">AutoFlow</CardTitle>
+          <CardDescription>Sign in — lender staff and dealer partners use the same login.</CardDescription>
         </CardHeader>
         <CardContent>
-          <Tabs defaultValue="login">
+          <Tabs defaultValue={params.get('tab') === 'signup' ? 'signup' : 'login'}>
             <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="login">Login</TabsTrigger>
               <TabsTrigger value="signup">Sign Up</TabsTrigger>

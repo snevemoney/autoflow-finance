@@ -1,6 +1,7 @@
 import { AppHeader } from '@/components/layout/AppHeader';
 import { DealCard } from '@/components/deals/DealCard';
-import { getDealsByDepartment } from '@/data/mockData';
+import { useDealsByDepartment } from '@/hooks/use-deals';
+import { useOpenRequestCounts } from '@/hooks/use-autoflow';
 import { Input } from '@/components/ui/input';
 import {
   Select,
@@ -13,7 +14,8 @@ import { Search, SlidersHorizontal, DollarSign } from 'lucide-react';
 import { useState } from 'react';
 
 export default function IncomeQueue() {
-  const deals = getDealsByDepartment('income');
+  const { data: deals = [], isLoading } = useDealsByDepartment('income');
+  const { data: requestCounts } = useOpenRequestCounts();
   const [sortBy, setSortBy] = useState('date');
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -43,15 +45,13 @@ export default function IncomeQueue() {
     (sum, d) => sum + d.financingTerms.loanAmount,
     0
   );
-  const avgIncome = Math.round(
+  const avgIncome = deals.length ? Math.round(
     deals.reduce(
       (sum, d) => sum + (d.customer.employmentInfo?.monthlyIncome || 0),
       0
     ) / deals.length
-  );
-  const docsNeeded = deals.filter((d) =>
-    d.documents.some((doc) => doc.type === 'income_verification' && doc.status === 'pending')
-  ).length;
+  ) : 0;
+  const docsNeeded = deals.filter((d) => (requestCounts?.get(d.id) ?? 0) > 0).length;
 
   return (
     <div className="flex flex-col h-full">
@@ -118,12 +118,12 @@ export default function IncomeQueue() {
         <div className="flex-1 overflow-y-auto p-6 pt-2 scrollbar-thin">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {sortedDeals.map((deal) => (
-              <DealCard key={deal.id} deal={deal} />
+              <DealCard key={deal.id} deal={deal} openRequests={requestCounts?.get(deal.id)} />
             ))}
           </div>
           {sortedDeals.length === 0 && (
             <div className="text-center py-12 text-muted-foreground">
-              No deals match your search criteria
+              {isLoading ? 'Loading…' : deals.length ? 'No deals match your search criteria' : 'Nothing waiting for income verification — credit-approved deals land here automatically.'}
             </div>
           )}
         </div>

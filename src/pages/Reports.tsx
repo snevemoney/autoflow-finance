@@ -1,6 +1,7 @@
 import { AppHeader } from '@/components/layout/AppHeader';
 import { DealsByStatusChart } from '@/components/dashboard/DealsByStatusChart';
-import { mockDeals, mockDealers } from '@/data/mockData';
+import { useDeals, useDealers } from '@/hooks/use-deals';
+import { monthlyTrend, toCsv, withinDays, formatMoneyShort } from '@/lib/metrics';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -33,35 +34,43 @@ import { useState } from 'react';
 export default function Reports() {
   const [timeRange, setTimeRange] = useState('30d');
 
-  // Calculate metrics
-  const totalDeals = mockDeals.length;
-  const fundedDeals = mockDeals.filter((d) => d.status === 'funded');
-  const declinedDeals = mockDeals.filter((d) => d.status === 'declined');
-  const approvalRate = Math.round((fundedDeals.length / totalDeals) * 100);
-  const totalFunded = fundedDeals.reduce(
-    (sum, d) => sum + d.financingTerms.loanAmount,
-    0
-  );
-  const avgDealSize = Math.round(totalFunded / fundedDeals.length);
+  const { data: allDeals = [] } = useDeals();
+  const { data: dealers = [] } = useDealers();
+  const days = { '7d': 7, '30d': 30, '90d': 90, '1y': 365 }[timeRange] ?? 30;
+  const deals = withinDays(allDeals, days);
 
-  // Volume by dealer data
-  const dealerVolume = mockDealers.map((dealer) => ({
-    name: dealer.name.split(' ')[0],
-    deals: mockDeals.filter((d) => d.dealerId === dealer.id).length,
-    funded: mockDeals.filter(
-      (d) => d.dealerId === dealer.id && d.status === 'funded'
-    ).length,
-  }));
+  const totalDeals = deals.length;
+  const fundedDeals = deals.filter((d) => d.status === 'funded');
+  const decided = deals.filter((d) => ['funded', 'approved', 'declined'].includes(d.status));
+  const approvalRate = decided.length ? Math.round((decided.filter((d) => d.status !== 'declined').length / decided.length) * 100) : null;
+  const totalFunded = fundedDeals.reduce((sum, d) => sum + (d.fundedAmount ?? d.financingTerms.loanAmount), 0);
+  const avgDealSize = fundedDeals.length ? Math.round(totalFunded / fundedDeals.length) : 0;
 
-  // Mock monthly trend data
-  const monthlyTrend = [
-    { month: 'Jul', deals: 28, funded: 280000 },
-    { month: 'Aug', deals: 35, funded: 350000 },
-    { month: 'Sep', deals: 42, funded: 420000 },
-    { month: 'Oct', deals: 38, funded: 380000 },
-    { month: 'Nov', deals: 45, funded: 450000 },
-    { month: 'Dec', deals: 52, funded: 520000 },
-  ];
+  const dealerVolume = dealers
+    .map((dealer) => ({
+      name: dealer.code || dealer.name.split(' ')[0],
+      deals: deals.filter((d) => d.dealerId === dealer.id).length,
+      funded: deals.filter((d) => d.dealerId === dealer.id && d.status === 'funded').length,
+    }))
+    .filter((d) => d.deals > 0)
+    .sort((a, b) => b.deals - a.deals)
+    .slice(0, 12);
+
+  const trend = monthlyTrend(allDeals, 6);
+
+  const exportCsv = () => {
+    const csv = toCsv(deals.map((d) => ({
+      deal_number: d.dealNumber, status: d.status, dealer: d.dealerName,
+      customer: `${d.customer.firstName} ${d.customer.lastName}`,
+      vehicle: `${d.vehicle.year} ${d.vehicle.make} ${d.vehicle.model}`,
+      loan_amount: d.financingTerms.loanAmount, apr: d.financingTerms.apr, term_months: d.financingTerms.termMonths,
+      credit_score: d.creditInfo?.score ?? '', submitted: d.createdAt, funded_at: d.fundedAt ?? '', funded_amount: d.fundedAmount ?? '',
+    })));
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+    const a = Object.assign(document.createElement('a'), { href: url, download: `autoflow-deals-${timeRange}.csv` });
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <div className="flex flex-col h-full">
@@ -82,9 +91,9 @@ export default function Reports() {
               <SelectItem value="1y">Last year</SelectItem>
             </SelectContent>
           </Select>
-          <Button variant="outline">
+          <Button variant="outline" onClick={exportCsv} disabled={!deals.length}>
             <Download className="h-4 w-4 mr-2" />
-            Export Report
+            Export CSV
           </Button>
         </div>
 
@@ -100,14 +109,14 @@ export default function Reports() {
             <CardHeader className="pb-2">
               <CardDescription>Total Funded</CardDescription>
               <CardTitle className="text-3xl text-success">
-                ${(totalFunded / 1000000).toFixed(2)}M
+                {formatMoneyShort(totalFunded)}
               </CardTitle>
             </CardHeader>
           </Card>
           <Card>
             <CardHeader className="pb-2">
               <CardDescription>Approval Rate</CardDescription>
-              <CardTitle className="text-3xl">{approvalRate}%</CardTitle>
+              <CardTitle className="text-3xl">{approvalRate == null ? '—' : `${approvalRate}%`}</CardTitle>
             </CardHeader>
           </Card>
           <Card>
@@ -129,7 +138,7 @@ export default function Reports() {
               <CardDescription>Current pipeline distribution</CardDescription>
             </CardHeader>
             <CardContent>
-              <DealsByStatusChart />
+              <DealsByStatusChart deals={deals} />
             </CardContent>
           </Card>
 
@@ -137,12 +146,12 @@ export default function Reports() {
           <Card>
             <CardHeader>
               <CardTitle>Monthly Volume Trend</CardTitle>
-              <CardDescription>Deals processed over time</CardDescription>
+              <CardDescription>Deals submitted per month (last 6 months)</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="h-[300px]">
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={monthlyTrend}>
+                  <LineChart data={trend}>
                     <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                     <XAxis dataKey="month" className="text-xs" />
                     <YAxis className="text-xs" />

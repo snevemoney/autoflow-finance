@@ -1,127 +1,42 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+// verify-employer — quick plausibility check that an employer is a real, operating business.
+import { corsHeaders, json } from "../_shared/http.ts";
+import { requireStaff } from "../_shared/auth.ts";
+import { AiError, aiConfigFromEnv, callJson } from "../_shared/ai.ts";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
-};
-
-serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  const staff = await requireStaff(req);
+  if (staff instanceof Response) return new Response(staff.body, { status: staff.status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
   try {
     const { employer, city, state } = await req.json();
+    if (!employer) return json({ error: "Employer name is required" }, 400);
+    const cfg = aiConfigFromEnv((k) => Deno.env.get(k));
+    if (!cfg) return json({ error: "AI is not configured (set OPENROUTER_API_KEY)" }, 503);
 
-    if (!employer) {
-      return new Response(
-        JSON.stringify({ error: "Employer name is required" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) {
-      throw new Error("LOVABLE_API_KEY is not configured");
-    }
-
-    const locationContext = city && state ? ` located in ${city}, ${state}` : "";
-
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
-        messages: [
-          {
-            role: "system",
-            content: `You are a business verification assistant. When given an employer/business name and optional location, determine if the business likely exists and is legitimate. Respond using the provided tool.`,
-          },
-          {
-            role: "user",
-            content: `Verify this employer: "${employer}"${locationContext}. Is this a real, operating business?`,
-          },
-        ],
-        tools: [
-          {
-            type: "function",
-            function: {
-              name: "employer_verification",
-              description: "Return employer verification results",
-              parameters: {
-                type: "object",
-                properties: {
-                  verified: {
-                    type: "boolean",
-                    description: "Whether the employer appears to be a real, legitimate business",
-                  },
-                  confidence: {
-                    type: "string",
-                    enum: ["high", "medium", "low"],
-                    description: "Confidence level of the verification",
-                  },
-                  businessType: {
-                    type: "string",
-                    description: "Type of business (e.g., Corporation, LLC, Healthcare Provider)",
-                  },
-                  yearsInOperation: {
-                    type: "string",
-                    description: "Estimated years in operation or 'Unknown'",
-                  },
-                  summary: {
-                    type: "string",
-                    description: "Brief 1-2 sentence summary about the business",
-                  },
-                },
-                required: ["verified", "confidence", "summary"],
-                additionalProperties: false,
-              },
-            },
-          },
-        ],
-        tool_choice: { type: "function", function: { name: "employer_verification" } },
-      }),
+    const where = city && state ? ` located in ${city}, ${state}` : "";
+    const r = await callJson(cfg, {
+      system: "You are a business verification assistant for a Canadian auto lender. Reply with ONE JSON object only.",
+      content: [{
+        type: "text",
+        text: `Verify this employer: "${String(employer).slice(0, 200)}"${where}. Is it a real, operating business?
+Return {"verified": boolean, "confidence": "high|medium|low", "businessType": string, "yearsInOperation": string, "summary": "1-2 sentences"}.
+If you are not sure the business exists, set verified false and confidence low.`,
+      }],
+      maxTokens: 400,
     });
-
-    if (!response.ok) {
-      if (response.status === 429) {
-        return new Response(
-          JSON.stringify({ error: "Rate limit exceeded, please try again later." }),
-          { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-      if (response.status === 402) {
-        return new Response(
-          JSON.stringify({ error: "Payment required, please add credits." }),
-          { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-      const text = await response.text();
-      console.error("AI gateway error:", response.status, text);
-      throw new Error("AI gateway error");
-    }
-
-    const data = await response.json();
-    const toolCall = data.choices?.[0]?.message?.tool_calls?.[0];
-
-    if (!toolCall) {
-      throw new Error("No tool call in AI response");
-    }
-
-    const result = JSON.parse(toolCall.function.arguments);
-
-    return new Response(JSON.stringify(result), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    const d = r.data;
+    const confidence = ["high", "medium", "low"].includes(String(d.confidence)) ? String(d.confidence) : "low";
+    return json({
+      verified: d.verified === true,
+      confidence,
+      businessType: typeof d.businessType === "string" ? d.businessType : undefined,
+      yearsInOperation: typeof d.yearsInOperation === "string" ? d.yearsInOperation : "Unknown",
+      summary: typeof d.summary === "string" ? d.summary : "",
+      model: r.model,
     });
   } catch (e) {
     console.error("verify-employer error:", e);
-    return new Response(
-      JSON.stringify({ error: e instanceof Error ? e.message : "Unknown error" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    return json({ error: e instanceof Error ? e.message : "Unknown error" }, e instanceof AiError ? e.status : 500);
   }
 });

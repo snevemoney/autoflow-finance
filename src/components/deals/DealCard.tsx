@@ -1,7 +1,6 @@
 import { Deal, DEAL_STATUS_CONFIG } from '@/types/deal';
-import { cn } from '@/lib/utils';
-import { formatDistanceToNow } from 'date-fns';
-import { AlertCircle, Briefcase, Clock, CreditCard, Car, FileText, Gavel, Home, User } from 'lucide-react';
+import { ago, cn } from '@/lib/utils';
+import { AlertCircle, Briefcase, Clock, CreditCard, Car, Gavel, Home, User, Send } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 export interface DebtSummary {
@@ -18,9 +17,13 @@ interface DealCardProps {
   compact?: boolean;
   dragging?: boolean;
   debtSummary?: DebtSummary;
+  /** open document requests waiting on the dealer */
+  openRequests?: number;
+  /** where clicking goes (dealer portal uses its own route) */
+  href?: string;
 }
 
-export function DealCard({ deal, compact = false, dragging = false, debtSummary }: DealCardProps) {
+export function DealCard({ deal, compact = false, dragging = false, debtSummary, openRequests, href }: DealCardProps) {
   const navigate = useNavigate();
   const statusConfig = DEAL_STATUS_CONFIG[deal.status];
 
@@ -51,7 +54,7 @@ export function DealCard({ deal, compact = false, dragging = false, debtSummary 
 
   return (
     <div
-      onClick={() => navigate(`/deals/${deal.id}`)}
+      onClick={() => navigate(href ?? `/deals/${deal.id}`)}
       className={cn(
         'deal-card cursor-pointer animate-fade-in',
         dragging && 'opacity-50 shadow-lg rotate-2',
@@ -117,7 +120,7 @@ export function DealCard({ deal, compact = false, dragging = false, debtSummary 
                 (deal.financingTerms.monthlyPayment / deal.customer.employmentInfo.monthlyIncome * 100) > 20 ? 'text-warning' :
                 (deal.financingTerms.monthlyPayment / deal.customer.employmentInfo.monthlyIncome * 100) > 30 ? 'text-destructive' : 'text-success'
               )}>
-                ${deal.financingTerms.monthlyPayment.toLocaleString()}/mo ({Math.round(deal.financingTerms.monthlyPayment / deal.customer.employmentInfo.monthlyIncome * 100)}% PTI)
+                ${deal.financingTerms.monthlyPayment.toLocaleString('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/mo ({Math.round(deal.financingTerms.monthlyPayment / deal.customer.employmentInfo.monthlyIncome * 100)}% PTI)
               </span>
             </div>
           )}
@@ -195,19 +198,21 @@ export function DealCard({ deal, compact = false, dragging = false, debtSummary 
 
       {/* Footer */}
       <div className="flex items-center justify-between pt-3 border-t text-xs text-muted-foreground">
-        <div className="flex items-center gap-3">
-          <span className="flex items-center gap-1">
-            <FileText className="h-3 w-3" />
-            {deal.documents.length}
+        <div className="flex items-center gap-3 min-w-0">
+          <span className="flex items-center gap-1 truncate">
+            <User className="h-3 w-3 shrink-0" />
+            <span className="truncate">{deal.dealerName}</span>
           </span>
-          <span className="flex items-center gap-1">
-            <User className="h-3 w-3" />
-            {deal.dealerName.split(' ')[0]}
-          </span>
+          {!!openRequests && (
+            <span className="flex items-center gap-1 text-warning font-medium shrink-0" title="Documents requested from the dealer">
+              <Send className="h-3 w-3" />
+              {openRequests}
+            </span>
+          )}
         </div>
-        <span className="flex items-center gap-1">
+        <span className="flex items-center gap-1 shrink-0" title="Time in this stage">
           <Clock className="h-3 w-3" />
-          {formatDistanceToNow(new Date(deal.createdAt), { addSuffix: true })}
+          {ago(deal.statusChangedAt ?? deal.createdAt, { addSuffix: false })}
         </span>
       </div>
     </div>

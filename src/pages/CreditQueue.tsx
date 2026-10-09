@@ -1,6 +1,7 @@
 import { AppHeader } from '@/components/layout/AppHeader';
 import { DealCard, DebtSummary } from '@/components/deals/DealCard';
-import { getDealsByDepartment } from '@/data/mockData';
+import { useDealsByDepartment } from '@/hooks/use-deals';
+import { useOpenRequestCounts } from '@/hooks/use-autoflow';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -15,11 +16,13 @@ import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 
 export default function CreditQueue() {
-  const deals = getDealsByDepartment('credit');
+  const { data: deals = [], isLoading } = useDealsByDepartment('credit');
+  const { data: requestCounts } = useOpenRequestCounts();
   const [sortBy, setSortBy] = useState('date');
   const [searchQuery, setSearchQuery] = useState('');
   const [debtMap, setDebtMap] = useState<Map<string, DebtSummary>>(new Map());
 
+  const dealKey = deals.map((d) => d.id).join(',');
   // Fetch applicant debts for all queued deals
   useEffect(() => {
     const dealIds = deals.map((d) => d.id);
@@ -65,7 +68,8 @@ export default function CreditQueue() {
         }
         setDebtMap(result);
       });
-  }, [deals.length]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refetch only when the set of queued deals changes
+  }, [dealKey]);
 
   const filteredDeals = deals.filter(
     (deal) =>
@@ -92,9 +96,10 @@ export default function CreditQueue() {
   });
 
   // Calculate stats
-  const avgScore = Math.round(
-    deals.reduce((sum, d) => sum + (d.creditInfo?.score || 0), 0) / deals.length
-  );
+  const scored = deals.filter((d) => d.creditInfo?.score);
+  const avgScore = scored.length
+    ? Math.round(scored.reduce((sum, d) => sum + (d.creditInfo?.score || 0), 0) / scored.length)
+    : '—';
   const primeCount = deals.filter((d) => d.creditInfo?.tier === 'prime').length;
   const subprimeCount = deals.filter(
     (d) =>
@@ -182,12 +187,13 @@ export default function CreditQueue() {
                 key={deal.id}
                 deal={deal}
                 debtSummary={debtMap.get(deal.id)}
+                openRequests={requestCounts?.get(deal.id)}
               />
             ))}
           </div>
           {sortedDeals.length === 0 && (
             <div className="text-center py-12 text-muted-foreground">
-              No deals match your search criteria
+              {isLoading ? 'Loading…' : deals.length ? 'No deals match your search criteria' : 'Nothing waiting for credit review — complete files land here automatically.'}
             </div>
           )}
         </div>

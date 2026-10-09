@@ -8,6 +8,7 @@ import {
   DndContext,
   DragOverlay,
   closestCorners,
+  useDroppable,
   KeyboardSensor,
   PointerSensor,
   useSensor,
@@ -23,6 +24,9 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Loader2 } from 'lucide-react';
+import { useSetDealStatus, useOpenRequestCounts } from '@/hooks/use-autoflow';
+import { toast } from '@/hooks/use-toast';
+import type { ReactNode } from 'react';
 
 const PIPELINE_STAGES: DealStatus[] = [
   'new_submission',
@@ -31,9 +35,24 @@ const PIPELINE_STAGES: DealStatus[] = [
   'income_verification',
   'funding_review',
   'approved',
+  'funded',
 ];
 
-function SortableDealCard({ deal }: { deal: Deal }) {
+const DOT: Record<string, string> = {
+  new_submission: 'bg-info', document_review: 'bg-warning', credit_review: 'bg-warning',
+  income_verification: 'bg-warning', funding_review: 'bg-info', approved: 'bg-success', funded: 'bg-accent',
+};
+
+function Column({ status, children }: { status: DealStatus; children: ReactNode }) {
+  const { setNodeRef, isOver } = useDroppable({ id: status });
+  return (
+    <div ref={setNodeRef} id={status} className={cn('pipeline-column w-80 transition-colors', isOver && 'ring-2 ring-accent/40')}>
+      {children}
+    </div>
+  );
+}
+
+function SortableDealCard({ deal, openRequests }: { deal: Deal; openRequests?: number }) {
   const {
     attributes,
     listeners,
@@ -50,13 +69,15 @@ function SortableDealCard({ deal }: { deal: Deal }) {
 
   return (
     <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
-      <DealCard deal={deal} compact dragging={isDragging} />
+      <DealCard deal={deal} compact dragging={isDragging} openRequests={openRequests} />
     </div>
   );
 }
 
 export default function Pipeline() {
   const { data: dbDeals = [], isLoading } = useDeals();
+  const setStatus = useSetDealStatus();
+  const { data: requestCounts } = useOpenRequestCounts();
   const [localOverrides, setLocalOverrides] = useState<Record<string, DealStatus>>({});
   const [activeDeal, setActiveDeal] = useState<Deal | null>(null);
 
@@ -81,15 +102,29 @@ export default function Pipeline() {
     const { active, over } = event;
     if (!over) return;
     const overId = over.id as string;
-    if (PIPELINE_STAGES.includes(overId as DealStatus)) {
-      setLocalOverrides(prev => ({ ...prev, [active.id as string]: overId as DealStatus }));
+    const target = PIPELINE_STAGES.includes(overId as DealStatus)
+      ? (overId as DealStatus)
+      : deals.find((d) => d.id === overId)?.status;
+    const deal = deals.find((d) => d.id === active.id);
+    if (!deal || !target || target === deal.status || !PIPELINE_STAGES.includes(target)) return;
+    if (target === 'funded' && !deal.fundedAt && deal.status !== 'approved') {
+      toast({ title: 'Only approved deals can be funded', description: 'Approve funding first.', variant: 'destructive' });
+      return;
     }
+    setLocalOverrides(prev => ({ ...prev, [deal.id]: target }));
+    setStatus.mutate({ dealId: deal.id, status: target }, {
+      onSuccess: () => toast({ title: `${deal.dealNumber} → ${DEAL_STATUS_CONFIG[target].label}` }),
+      onError: (e) => {
+        toast({ title: 'Could not move deal', description: e instanceof Error ? e.message : String(e), variant: 'destructive' });
+      },
+      onSettled: () => setLocalOverrides(prev => { const next = { ...prev }; delete next[deal.id]; return next; }),
+    });
   };
 
   if (isLoading) {
     return (
       <div className="flex flex-col h-full">
-        <AppHeader title="Deal Pipeline" subtitle="Drag and drop deals between stages" />
+        <AppHeader title="Deal Pipeline" subtitle="Deals move on their own as each step completes — drag to override" />
         <div className="flex-1 flex items-center justify-center">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
         </div>
@@ -99,7 +134,7 @@ export default function Pipeline() {
 
   return (
     <div className="flex flex-col h-full">
-      <AppHeader title="Deal Pipeline" subtitle="Drag and drop deals between stages" />
+      <AppHeader title="Deal Pipeline" subtitle="Deals move on their own as each step completes — drag to override" />
       <div className="flex-1 overflow-x-auto p-6">
         <DndContext
           sensors={sensors}
@@ -112,17 +147,10 @@ export default function Pipeline() {
               const stageDeals = getDealsByStatus(status);
               const config = DEAL_STATUS_CONFIG[status];
               return (
-                <div key={status} id={status} className="pipeline-column w-80">
+                <Column key={status} status={status}>
                   <div className="pipeline-column-header">
                     <div className="flex items-center gap-2">
-                      <span className={cn('h-2 w-2 rounded-full',
-                        status === 'new_submission' && 'bg-info',
-                        status === 'document_review' && 'bg-warning',
-                        status === 'credit_review' && 'bg-warning',
-                        status === 'income_verification' && 'bg-warning',
-                        status === 'funding_review' && 'bg-info',
-                        status === 'approved' && 'bg-success'
-                      )} />
+                      <span className={cn('h-2 w-2 rounded-full', DOT[status])} />
                       <h3 className="font-medium text-sm">{config.label}</h3>
                     </div>
                     <span className="text-xs font-medium text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
@@ -131,13 +159,13 @@ export default function Pipeline() {
                   </div>
                   <SortableContext items={stageDeals.map(d => d.id)} strategy={verticalListSortingStrategy}>
                     <div className="space-y-3 flex-1 overflow-y-auto scrollbar-thin pr-1">
-                      {stageDeals.map(deal => <SortableDealCard key={deal.id} deal={deal} />)}
+                      {stageDeals.map(deal => <SortableDealCard key={deal.id} deal={deal} openRequests={requestCounts?.get(deal.id)} />)}
                       {stageDeals.length === 0 && (
                         <div className="text-center py-8 text-sm text-muted-foreground">No deals in this stage</div>
                       )}
                     </div>
                   </SortableContext>
-                </div>
+                </Column>
               );
             })}
           </div>

@@ -1,8 +1,9 @@
 import { useState, useCallback } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
-import { AlertTriangle, CheckCircle2, Clock, FileWarning, Briefcase, GraduationCap, Hammer, Wrench, Leaf, Timer, UserX, Heart, Shield, FileSearch, ChevronDown, ChevronUp, Calculator, ClipboardCheck } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { AlertTriangle, CheckCircle2, Clock, FileWarning, Briefcase, GraduationCap, Hammer, Wrench, Leaf, Timer, UserX, Heart, Shield, FileSearch, ChevronDown, ChevronUp, Calculator, ClipboardCheck, Sparkles } from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { ago, cn } from '@/lib/utils';
 import { IncomeSourceActions } from './IncomeSourceActions';
 import { IncomeCalculator, type CalcMethod } from './IncomeCalculator';
 import { IncomeDocPreview } from './IncomeDocPreview';
@@ -39,6 +40,9 @@ export interface IncomeSource {
   missed_days_flag: boolean;
   additional_docs_requested: string[];
   vehicle_for_work: boolean;
+  gross_per_period?: number | null;
+  auto_filled_at?: string | null;
+  auto_fill_document_id?: string | null;
 }
 
 export interface LinkedExtraction {
@@ -120,7 +124,7 @@ export function IncomeSourceCard({ source, linkedExtractions, onUpdated }: Incom
             {source.is_primary && (
               <Badge variant="secondary" className="text-xs">Primary</Badge>
             )}
-            {(source as any).vehicle_for_work && (
+            {source.vehicle_for_work && (
               <Badge variant="destructive" className="text-xs">Rideshare/Commercial</Badge>
             )}
             {(source.source_type === 'government_assistance' || source.source_type === 'unemployed') && (
@@ -133,6 +137,18 @@ export function IncomeSourceCard({ source, linkedExtractions, onUpdated }: Incom
             )}
             {source.missed_days_flag && (
               <AlertTriangle className="h-3.5 w-3.5 text-warning" />
+            )}
+            {source.auto_filled_at && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Badge variant="outline" className="text-xs gap-1 text-accent border-accent/30 bg-accent/5">
+                    <Sparkles className="h-3 w-3" /> Auto-filled
+                  </Badge>
+                </TooltipTrigger>
+                <TooltipContent className="text-xs">
+                  Filled from a pay document {ago(source.auto_filled_at, { addSuffix: true })} — review and verify
+                </TooltipContent>
+              </Tooltip>
             )}
           </div>
           <div className={cn('flex items-center gap-1 text-xs', statusConfig.className)}>
@@ -230,9 +246,10 @@ export function IncomeSourceCard({ source, linkedExtractions, onUpdated }: Incom
                   currentHourlyRate={source.hourly_rate}
                   currentHoursPerWeek={source.hours_per_week}
                   currentPayFrequency={source.pay_frequency}
+                  currentGrossPerPeriod={source.gross_per_period ?? null}
                   missedDaysFlag={source.missed_days_flag ?? false}
                   additionalDocsRequested={source.additional_docs_requested ?? []}
-                  vehicleForWork={(source as any).vehicle_for_work ?? false}
+                  vehicleForWork={source.vehicle_for_work ?? false}
                   contractMonths={source.contract_months}
                   sourceCreatedAt={source.created_at}
                   onUpdated={onUpdated}

@@ -44,6 +44,8 @@ interface IncomeCalculatorProps {
   currentHourlyRate: number | null;
   currentHoursPerWeek: number | null;
   currentPayFrequency: string | null;
+  /** gross pay per period, pre-filled by the income auto-fill */
+  currentGrossPerPeriod?: number | null;
   missedDaysFlag: boolean;
   additionalDocsRequested: string[];
   vehicleForWork: boolean;
@@ -77,6 +79,7 @@ export function IncomeCalculator({
   currentHourlyRate,
   currentHoursPerWeek,
   currentPayFrequency,
+  currentGrossPerPeriod,
   missedDaysFlag,
   additionalDocsRequested,
   vehicleForWork,
@@ -96,7 +99,7 @@ export function IncomeCalculator({
 
   // MI sub-mode state
   const [miInputMode, setMiInputMode] = useState<MiInputMode>(currentHourlyRate ? 'hourly' : 'salary');
-  const [grossPerPeriod, setGrossPerPeriod] = useState('');
+  const [grossPerPeriod, setGrossPerPeriod] = useState(currentGrossPerPeriod != null ? String(currentGrossPerPeriod) : '');
   const [payFrequency, setPayFrequency] = useState<PayFrequency>((currentPayFrequency as PayFrequency) ?? 'biweekly');
   const [hourlyRate, setHourlyRate] = useState(currentHourlyRate?.toString() ?? '');
   const [hoursPerWeek, setHoursPerWeek] = useState(currentHoursPerWeek?.toString() ?? '');
@@ -468,7 +471,11 @@ export function IncomeCalculator({
         .eq('id', sourceId);
 
       if (error) throw error;
-      toast({ title: `Requested: ${docType}` });
+      // also ask the dealer for them in their portal
+      const { error: reqErr } = await supabase.rpc('request_document', {
+        _deal_id: dealId, _doc_type: 'bank_statement', _message: docType,
+      });
+      toast({ title: `Requested: ${docType}`, description: reqErr ? undefined : 'The dealer has been asked in their portal.' });
       onUpdated();
     } catch (err: any) {
       toast({ title: 'Error', description: err.message, variant: 'destructive' });

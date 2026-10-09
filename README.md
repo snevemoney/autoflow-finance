@@ -9,6 +9,7 @@
 
 ---
 
+**Automations, setup and tests:** see [AUTOMATIONS.md](AUTOMATIONS.md) — dealer portal, document auto-sort, income auto-fill, missing-document requests and queue routing through to Funded.
 
 # Welcome to your Lovable project
 

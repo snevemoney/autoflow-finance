@@ -7,6 +7,9 @@ import {
   MessageSquare,
   UserPlus,
   Mail,
+  Sparkles,
+  Send,
+  Gavel,
 } from 'lucide-react';
 
 interface DealTimelineProps {
@@ -26,12 +29,19 @@ export function DealTimeline({ events }: DealTimelineProps) {
         return <UserPlus className="h-3 w-3" />;
       case 'email_sent':
         return <Mail className="h-3 w-3" />;
+      case 'automation':
+        return <Sparkles className="h-3 w-3" />;
+      case 'document_request':
+        return <Send className="h-3 w-3" />;
+      case 'decision':
+        return <Gavel className="h-3 w-3" />;
       default:
         return <ArrowRight className="h-3 w-3" />;
     }
   };
 
-  const getEventColor = (type: TimelineEvent['type']) => {
+  const getEventColor = (type: TimelineEvent['type'], event?: TimelineEvent) => {
+    if (type === 'status_change' && event?.metadata && (event.metadata as Record<string, unknown>).automation) return 'bg-accent';
     switch (type) {
       case 'status_change':
         return 'bg-info';
@@ -42,6 +52,12 @@ export function DealTimeline({ events }: DealTimelineProps) {
       case 'assignment':
         return 'bg-accent';
       case 'email_sent':
+        return 'bg-primary';
+      case 'automation':
+        return 'bg-accent';
+      case 'document_request':
+        return 'bg-warning';
+      case 'decision':
         return 'bg-primary';
       default:
         return 'bg-muted-foreground';
@@ -59,7 +75,7 @@ export function DealTimeline({ events }: DealTimelineProps) {
           <div
             className={cn(
               'timeline-dot flex items-center justify-center text-primary-foreground',
-              getEventColor(event.type)
+              getEventColor(event.type, event)
             )}
           >
             {getEventIcon(event.type)}

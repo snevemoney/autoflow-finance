@@ -21,6 +21,21 @@ export type DocumentType =
   | 'other';
 
 export type UserRole = 'dealer' | 'credit_analyst' | 'income_verifier' | 'funding_manager' | 'admin';
+export type CreditDecision = 'pending' | 'approved' | 'conditional' | 'declined';
+
+/** The stages a deal moves through, in order (declined / incomplete sit outside the flow). */
+export const DEAL_FLOW: DealStatus[] = [
+  'new_submission',
+  'document_review',
+  'credit_review',
+  'income_verification',
+  'funding_review',
+  'approved',
+  'funded',
+];
+
+export type ProcessingStatus = 'pending' | 'processing' | 'done' | 'failed' | 'skipped' | 'manual';
+export type TypeSource = 'manual' | 'auto' | 'rule';
 
 export interface Document {
   id: string;
@@ -33,6 +48,14 @@ export interface Document {
   uploadedBy: string;
   status: 'pending' | 'verified' | 'rejected';
   notes?: string;
+  storagePath?: string | null;
+  previewPath?: string | null;
+  mimeType?: string | null;
+  processingStatus?: ProcessingStatus;
+  processingError?: string | null;
+  typeSource?: TypeSource;
+  classificationConfidence?: string | null;
+  aiModel?: string | null;
 }
 
 export interface DealNote {
@@ -47,7 +70,7 @@ export interface DealNote {
 export interface TimelineEvent {
   id: string;
   dealId: string;
-  type: 'status_change' | 'document_upload' | 'note_added' | 'assignment' | 'email_sent';
+  type: 'status_change' | 'document_upload' | 'note_added' | 'assignment' | 'email_sent' | 'automation' | 'document_request' | 'decision';
   description: string;
   createdAt: string;
   createdBy: string;
@@ -146,6 +169,15 @@ export interface Deal {
   
   fundedAt?: string;
   fundedAmount?: number;
+
+  creditDecision?: CreditDecision;
+  creditDecisionAt?: string;
+  creditDecisionNotes?: string;
+  incomeVerifiedAt?: string;
+  fundingChecklist?: Record<string, boolean>;
+  fundingApprovedAt?: string;
+  submittedByDealer?: boolean;
+  statusChangedAt?: string;
   
   createdAt: string;
   updatedAt: string;

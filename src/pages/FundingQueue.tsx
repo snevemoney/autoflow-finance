@@ -1,6 +1,6 @@
 import { AppHeader } from '@/components/layout/AppHeader';
 import { DealCard } from '@/components/deals/DealCard';
-import { getDealsByDepartment } from '@/data/mockData';
+import { useDealsByDepartment } from '@/hooks/use-deals';
 import { Input } from '@/components/ui/input';
 import {
   Select,
@@ -13,7 +13,7 @@ import { Search, SlidersHorizontal, CheckCircle2 } from 'lucide-react';
 import { useState } from 'react';
 
 export default function FundingQueue() {
-  const deals = getDealsByDepartment('funding');
+  const { data: deals = [], isLoading } = useDealsByDepartment('funding');
   const [sortBy, setSortBy] = useState('date');
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -40,7 +40,8 @@ export default function FundingQueue() {
     (sum, d) => sum + d.financingTerms.loanAmount,
     0
   );
-  const avgDeal = Math.round(totalToFund / deals.length);
+  const avgDeal = deals.length ? Math.round(totalToFund / deals.length) : 0;
+  const readyToFund = deals.filter((d) => d.status === 'approved').length;
   const highValueDeals = deals.filter(
     (d) => d.financingTerms.loanAmount > 40000
   ).length;
@@ -49,7 +50,7 @@ export default function FundingQueue() {
     <div className="flex flex-col h-full">
       <AppHeader
         title="Funding Queue"
-        subtitle={`${deals.length} deals ready for funding`}
+        subtitle={`${deals.length} in funding · ${readyToFund} approved and ready to fund`}
       />
 
       <div className="flex-1 overflow-hidden flex flex-col">
@@ -57,8 +58,8 @@ export default function FundingQueue() {
         <div className="p-6 pb-0">
           <div className="grid grid-cols-4 gap-4 mb-6">
             <div className="stat-card p-4">
-              <p className="text-sm text-muted-foreground">Ready to Fund</p>
-              <p className="text-2xl font-bold">{deals.length}</p>
+              <p className="text-sm text-muted-foreground">Approved, ready to fund</p>
+              <p className="text-2xl font-bold">{readyToFund}</p>
             </div>
             <div className="stat-card p-4">
               <p className="text-sm text-muted-foreground">Total to Disburse</p>
@@ -111,7 +112,7 @@ export default function FundingQueue() {
           </div>
           {sortedDeals.length === 0 && (
             <div className="text-center py-12 text-muted-foreground">
-              No deals match your search criteria
+              {isLoading ? 'Loading…' : deals.length ? 'No deals match your search criteria' : 'Nothing in funding yet — deals with verified income land here automatically.'}
             </div>
           )}
         </div>

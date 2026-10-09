@@ -402,13 +402,9 @@ export function IncomeVerificationCard({ deal }: IncomeVerificationCardProps) {
     calculatedIncome = calcMonthlyFromExtraction(best.gross_pay!, best.pay_frequency!);
     incomeSource = `Extracted from document (${best.confidence} confidence)`;
   } else {
-    const incomeDocs = deal.documents.filter(
-      d => d.type === 'pay_stub' || d.type === 'bank_statement' || d.type === 'income_verification'
-    );
-    calculatedIncome = incomeDocs.length > 1
-      ? Math.round(statedIncome * (0.95 + Math.random() * 0.1))
-      : statedIncome;
-    incomeSource = 'Estimated from application';
+    // nothing read from documents yet: show the stated figure, clearly labelled
+    calculatedIncome = statedIncome;
+    incomeSource = 'Stated on application — not yet verified';
   }
 
   const incomeDelta = calculatedIncome - statedIncome;

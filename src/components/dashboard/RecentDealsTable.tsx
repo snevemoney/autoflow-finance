@@ -1,17 +1,20 @@
-import { mockDeals } from '@/data/mockData';
+import { ago } from '@/lib/utils';
 import { StatusBadge } from '@/components/deals/StatusBadge';
-import { formatDistanceToNow } from 'date-fns';
 import { useNavigate } from 'react-router-dom';
-import { cn } from '@/lib/utils';
+import type { Deal } from '@/types/deal';
 
-export function RecentDealsTable() {
+export function RecentDealsTable({ deals, limit = 8 }: { deals: Deal[]; limit?: number }) {
   const navigate = useNavigate();
-  const recentDeals = [...mockDeals]
+  const recentDeals = [...deals]
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-    .slice(0, 8);
+    .slice(0, limit);
+
+  if (!recentDeals.length) {
+    return <p className="text-sm text-muted-foreground py-8 text-center">No deals yet. Dealers submit from their portal, or use “New deal”.</p>;
+  }
 
   return (
-    <div className="overflow-hidden rounded-lg border">
+    <div className="overflow-x-auto rounded-lg border">
       <table className="data-table">
         <thead>
           <tr>
@@ -25,36 +28,16 @@ export function RecentDealsTable() {
         </thead>
         <tbody>
           {recentDeals.map((deal) => (
-            <tr
-              key={deal.id}
-              onClick={() => navigate(`/deals/${deal.id}`)}
-              className="cursor-pointer"
-            >
+            <tr key={deal.id} onClick={() => navigate(`/deals/${deal.id}`)} className="cursor-pointer">
               <td className="font-mono text-sm">{deal.dealNumber}</td>
               <td>
-                <div>
-                  <p className="font-medium">
-                    {deal.customer.firstName} {deal.customer.lastName}
-                  </p>
-                  <p className="text-xs text-muted-foreground">{deal.dealerName}</p>
-                </div>
+                <p className="font-medium">{deal.customer.firstName} {deal.customer.lastName}</p>
+                <p className="text-xs text-muted-foreground">{deal.dealerName}</p>
               </td>
-              <td>
-                <span className="text-sm">
-                  {deal.vehicle.year} {deal.vehicle.make} {deal.vehicle.model}
-                </span>
-              </td>
-              <td>
-                <span className="font-medium">
-                  ${deal.financingTerms.loanAmount.toLocaleString()}
-                </span>
-              </td>
-              <td>
-                <StatusBadge status={deal.status} size="sm" />
-              </td>
-              <td className="text-sm text-muted-foreground">
-                {formatDistanceToNow(new Date(deal.createdAt), { addSuffix: true })}
-              </td>
+              <td><span className="text-sm">{deal.vehicle.year} {deal.vehicle.make} {deal.vehicle.model}</span></td>
+              <td><span className="font-medium">${deal.financingTerms.loanAmount.toLocaleString('en-CA')}</span></td>
+              <td><StatusBadge status={deal.status} size="sm" /></td>
+              <td className="text-sm text-muted-foreground">{ago(deal.createdAt, { addSuffix: true })}</td>
             </tr>
           ))}
         </tbody>

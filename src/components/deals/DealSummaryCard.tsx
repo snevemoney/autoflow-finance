@@ -17,8 +17,10 @@ function computeRisk(deal: DealSummaryCardProps['deal'], incomeSources?: IncomeS
   let score = 0;
   const concerns: string[] = [];
 
-  const creditScore = deal.creditInfo?.score ?? 0;
-  if (creditScore >= 720) score += 0;
+  // no bureau score yet (before credit review) is not the same as a bad score
+  const creditScore = deal.creditInfo?.score;
+  if (creditScore == null) concerns.push('Credit not pulled yet');
+  else if (creditScore >= 720) score += 0;
   else if (creditScore >= 660) { score += 15; concerns.push('Near-prime credit'); }
   else if (creditScore >= 600) { score += 30; concerns.push('Subprime credit'); }
   else { score += 50; concerns.push('Deep subprime credit'); }

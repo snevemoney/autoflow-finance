@@ -1,3 +1,4 @@
+import { ago } from '@/lib/utils';
 import { useState } from 'react';
 import { AppHeader } from '@/components/layout/AppHeader';
 import { StatusBadge } from '@/components/deals/StatusBadge';
@@ -12,17 +13,25 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useNavigate } from 'react-router-dom';
-import { formatDistanceToNow } from 'date-fns';
-import { Search, Filter, Download, SlidersHorizontal, Loader2 } from 'lucide-react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { stuckDeals, toCsv } from '@/lib/metrics';
+import { useAppSettings } from '@/hooks/use-autoflow';
+
+import { Search, Filter, Download, Loader2, Plus, AlertTriangle } from 'lucide-react';
 
 export default function DealsList() {
   const navigate = useNavigate();
   const { data: deals = [], isLoading } = useDeals();
-  const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<DealStatus | 'all'>('all');
+  const [params, setParams] = useSearchParams();
+  const [searchQuery, setSearchQuery] = useState(params.get('q') ?? '');
+  const [statusFilter, setStatusFilter] = useState<DealStatus | 'all'>((params.get('status') as DealStatus) ?? 'all');
+  const attentionOnly = params.get('attention') === '1';
+  const { data: settings } = useAppSettings();
+  const staleDays = parseInt(String((settings?.preferences as Record<string, unknown> | undefined)?.stale_days ?? '3'), 10) || 3;
+  const stuckIds = new Set(stuckDeals(deals, new Date(), staleDays).map((d) => d.id));
 
   const filteredDeals = deals.filter((deal) => {
+    if (attentionOnly && !stuckIds.has(deal.id)) return false;
     const matchesSearch =
       deal.dealNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
       `${deal.customer.firstName} ${deal.customer.lastName}`
@@ -82,14 +91,29 @@ export default function DealsList() {
               </SelectContent>
             </Select>
 
-            <Button variant="outline">
-              <SlidersHorizontal className="h-4 w-4 mr-2" />
-              More Filters
+            <Button variant={attentionOnly ? 'default' : 'outline'}
+              onClick={() => { const next = new URLSearchParams(params); if (attentionOnly) next.delete('attention'); else next.set('attention', '1'); setParams(next); }}>
+              <AlertTriangle className="h-4 w-4 mr-2" />
+              Stuck &gt; {staleDays}d{stuckIds.size ? ` (${stuckIds.size})` : ''}
             </Button>
 
-            <Button variant="outline">
+            <Button variant="outline" disabled={!filteredDeals.length} onClick={() => {
+              const csv = toCsv(filteredDeals.map((d) => ({
+                deal_number: d.dealNumber, status: d.status, customer: `${d.customer.firstName} ${d.customer.lastName}`,
+                dealer: d.dealerName, vehicle: `${d.vehicle.year} ${d.vehicle.make} ${d.vehicle.model}`, vin: d.vehicle.vin,
+                loan_amount: d.financingTerms.loanAmount, ltv: d.ltv, credit_score: d.creditInfo?.score ?? '', submitted: d.createdAt,
+              })));
+              const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+              Object.assign(document.createElement('a'), { href: url, download: 'autoflow-deals.csv' }).click();
+              URL.revokeObjectURL(url);
+            }}>
               <Download className="h-4 w-4 mr-2" />
               Export
+            </Button>
+
+            <Button className="ml-auto" onClick={() => navigate('/deals/new')}>
+              <Plus className="h-4 w-4 mr-2" />
+              New deal
             </Button>
           </div>
         </div>
@@ -101,7 +125,7 @@ export default function DealsList() {
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
             </div>
           ) : (
-            <div className="rounded-lg border overflow-hidden">
+            <div className="rounded-lg border overflow-x-auto">
               <table className="data-table">
                 <thead>
                   <tr>
@@ -154,12 +178,17 @@ export default function DealsList() {
                         <StatusBadge status={deal.status} size="sm" />
                       </td>
                       <td className="text-sm text-muted-foreground">
-                        {formatDistanceToNow(new Date(deal.createdAt), {
+                        {ago(deal.createdAt, {
                           addSuffix: true,
                         })}
                       </td>
                     </tr>
                   ))}
+                  {!filteredDeals.length && (
+                    <tr><td colSpan={9} className="text-center py-10 text-muted-foreground">
+                      {deals.length ? 'No deals match these filters.' : 'No deals yet — dealers submit from their portal, or click “New deal”.'}
+                    </td></tr>
+                  )}
                 </tbody>
               </table>
             </div>
