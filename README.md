@@ -15,6 +15,8 @@ stubs into the income calculator, asks the dealer for anything missing and moves
 to the next department as soon as its step is done. Credit, income and funding decisions
 stay with people.
 
+**Live:** https://autoflow-kappa-two.vercel.app
+
 **How the automations work, setup and tests:** [AUTOMATIONS.md](AUTOMATIONS.md)
 
 ## Stack

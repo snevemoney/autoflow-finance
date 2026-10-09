@@ -49,8 +49,8 @@ each manual move is logged on the timeline.
 ## Setup (Supabase + Vercel)
 
 **Where it runs:** Supabase project `bygxsgeiauvcdqyikhie` (region `ca-central-1`, Montréal), which holds the
-database, file storage, sign-in and the three edge functions. The site is on Vercel and deploys
-from `main`. Nothing runs on Lovable.
+database, file storage, sign-in and the three edge functions. The site is on Vercel (project
+`autoflow`, https://autoflow-kappa-two.vercel.app) and deploys from `main`. Nothing runs on Lovable.
 
 ### 1. Database schema
 
