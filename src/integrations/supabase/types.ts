@@ -20,6 +20,7 @@ export type Database = {
           funding_checklist_items: Json
           id: boolean
           preferences: Json
+          required_documents: Json
           updated_at: string
           updated_by: string | null
         }
@@ -28,6 +29,7 @@ export type Database = {
           funding_checklist_items?: Json
           id?: boolean
           preferences?: Json
+          required_documents?: Json
           updated_at?: string
           updated_by?: string | null
         }
@@ -36,6 +38,7 @@ export type Database = {
           funding_checklist_items?: Json
           id?: boolean
           preferences?: Json
+          required_documents?: Json
           updated_at?: string
           updated_by?: string | null
         }
@@ -954,6 +957,7 @@ export type Database = {
       dealer_stats: {
         Row: {
           active_deals: number | null
+          approval_rate: number | null
           dealer_id: string | null
           funded_deals: number | null
           total_deals: number | null
