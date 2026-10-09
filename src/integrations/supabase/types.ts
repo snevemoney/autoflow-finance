@@ -10,10 +10,34 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.1"
+    PostgrestVersion: "14.5"
   }
   public: {
     Tables: {
+      app_settings: {
+        Row: {
+          automations: Json
+          funding_checklist_items: Json
+          id: boolean
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          automations?: Json
+          funding_checklist_items?: Json
+          id?: boolean
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          automations?: Json
+          funding_checklist_items?: Json
+          id?: boolean
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
       applicant_debts: {
         Row: {
           created_at: string
@@ -209,6 +233,32 @@ export type Database = {
             columns: ["deal_id"]
             isOneToOne: false
             referencedRelation: "deals"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      dealer_users: {
+        Row: {
+          created_at: string
+          dealer_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          dealer_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          dealer_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dealer_users_dealer_id_fkey"
+            columns: ["dealer_id"]
+            isOneToOne: false
+            referencedRelation: "dealers"
             referencedColumns: ["id"]
           },
         ]
@@ -415,41 +465,109 @@ export type Database = {
           },
         ]
       }
+      document_requests: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          deal_id: string
+          doc_type: string
+          fulfilled_at: string | null
+          id: string
+          message: string | null
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          deal_id: string
+          doc_type: string
+          fulfilled_at?: string | null
+          id?: string
+          message?: string | null
+          status?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          deal_id?: string
+          doc_type?: string
+          fulfilled_at?: string | null
+          id?: string
+          message?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "document_requests_deal_id_fkey"
+            columns: ["deal_id"]
+            isOneToOne: false
+            referencedRelation: "deals"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       documents: {
         Row: {
+          ai_model: string | null
+          classification_confidence: string | null
           created_at: string
           deal_id: string
           file_size: number
           file_url: string
           id: string
+          mime_type: string | null
           name: string
           notes: string | null
+          preview_path: string | null
+          processed_at: string | null
+          processing_error: string | null
+          processing_status: string
           status: Database["public"]["Enums"]["document_status"]
+          storage_path: string | null
           type: Database["public"]["Enums"]["document_type"]
+          type_source: string
           uploaded_by: string | null
         }
         Insert: {
+          ai_model?: string | null
+          classification_confidence?: string | null
           created_at?: string
           deal_id: string
           file_size?: number
           file_url: string
           id?: string
+          mime_type?: string | null
           name: string
           notes?: string | null
+          preview_path?: string | null
+          processed_at?: string | null
+          processing_error?: string | null
+          processing_status?: string
           status?: Database["public"]["Enums"]["document_status"]
+          storage_path?: string | null
           type?: Database["public"]["Enums"]["document_type"]
+          type_source?: string
           uploaded_by?: string | null
         }
         Update: {
+          ai_model?: string | null
+          classification_confidence?: string | null
           created_at?: string
           deal_id?: string
           file_size?: number
           file_url?: string
           id?: string
+          mime_type?: string | null
           name?: string
           notes?: string | null
+          preview_path?: string | null
+          processed_at?: string | null
+          processing_error?: string | null
+          processing_status?: string
           status?: Database["public"]["Enums"]["document_status"]
+          storage_path?: string | null
           type?: Database["public"]["Enums"]["document_type"]
+          type_source?: string
           uploaded_by?: string | null
         }
         Relationships: [
@@ -538,6 +656,8 @@ export type Database = {
       income_sources: {
         Row: {
           additional_docs_requested: string[]
+          auto_fill_document_id: string | null
+          auto_filled_at: string | null
           benefit_cap_applied: boolean
           calc_method: string
           calculated_monthly_income: number | null
@@ -547,6 +667,7 @@ export type Database = {
           deal_id: string
           employer_name: string
           flag_reasons: string[] | null
+          gross_per_period: number | null
           hourly_rate: number | null
           hours_per_week: number | null
           id: string
@@ -569,6 +690,8 @@ export type Database = {
         }
         Insert: {
           additional_docs_requested?: string[]
+          auto_fill_document_id?: string | null
+          auto_filled_at?: string | null
           benefit_cap_applied?: boolean
           calc_method?: string
           calculated_monthly_income?: number | null
@@ -578,6 +701,7 @@ export type Database = {
           deal_id: string
           employer_name: string
           flag_reasons?: string[] | null
+          gross_per_period?: number | null
           hourly_rate?: number | null
           hours_per_week?: number | null
           id?: string
@@ -600,6 +724,8 @@ export type Database = {
         }
         Update: {
           additional_docs_requested?: string[]
+          auto_fill_document_id?: string | null
+          auto_filled_at?: string | null
           benefit_cap_applied?: boolean
           calc_method?: string
           calculated_monthly_income?: number | null
@@ -609,6 +735,7 @@ export type Database = {
           deal_id?: string
           employer_name?: string
           flag_reasons?: string[] | null
+          gross_per_period?: number | null
           hourly_rate?: number | null
           hours_per_week?: number | null
           id?: string
@@ -630,6 +757,13 @@ export type Database = {
           ytd_months?: number | null
         }
         Relationships: [
+          {
+            foreignKeyName: "income_sources_auto_fill_document_id_fkey"
+            columns: ["auto_fill_document_id"]
+            isOneToOne: false
+            referencedRelation: "documents"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "income_sources_customer_id_fkey"
             columns: ["customer_id"]
