@@ -1,4 +1,4 @@
-project_id = "rjmrqaqnvxfbsnblvsrp"
+project_id = "bygxsgeiauvcdqyikhie"
 
 # Each function checks the caller's session itself (staff / owning dealer), so the
 # platform-level JWT check stays off for compatibility with publishable keys.

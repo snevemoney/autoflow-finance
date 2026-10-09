@@ -48,6 +48,10 @@ each manual move is logged on the timeline.
 
 ## Setup (Supabase + Vercel)
 
+**Where it runs:** Supabase project `bygxsgeiauvcdqyikhie` (region `ca-central-1`, Montréal), which holds the
+database, file storage, sign-in and the three edge functions. The site is on Vercel and deploys
+from `main`. Nothing runs on Lovable.
+
 ### 1. Database schema
 
 Every schema change is a file in `supabase/migrations`, applied in file order:
@@ -71,7 +75,8 @@ supabase functions deploy process-document extract-income-data verify-employer
 ```
 
 `supabase/config.toml` turns off the gateway JWT check for these three, because each one
-checks the caller itself (staff, or the dealer who owns the deal).
+checks the caller itself (staff, or the dealer who owns the deal). Redeploy after changing
+anything in `supabase/functions`.
 
 ### 3. AI settings
 
@@ -125,7 +130,7 @@ files through short-lived signed links.
 
 ```bash
 npm test                # unit tests (dashboard metrics)
-npm run test:db         # every migration plus the deal-flow, access and AI-settings tests on a local Postgres 16
+npm run test:db         # every migration plus the deal-flow, access, AI-settings and function-access tests on a local Postgres 16
 npm run test:functions  # Deno tests for sorting, income maths and the AI request (needs deno)
 ```
 
