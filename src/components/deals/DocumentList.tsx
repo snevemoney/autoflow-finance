@@ -120,11 +120,14 @@ export function DocumentList({ dealId, documents, staff, extractions, onView }: 
           </div>
           <div className="flex items-center gap-1.5 flex-wrap justify-end" onClick={(e) => e.stopPropagation()}>
             <ProcessingBadge doc={doc} staff={staff} />
+            {/* staff see their own review state; a dealer just needs to know the file arrived (or must be resent) */}
             <span className={cn('status-badge',
               doc.status === 'verified' && 'bg-success/10 text-success',
-              doc.status === 'pending' && 'bg-warning/10 text-warning',
+              doc.status === 'pending' && (staff ? 'bg-warning/10 text-warning' : 'bg-muted text-muted-foreground'),
               doc.status === 'rejected' && 'bg-destructive/10 text-destructive')}>
-              {doc.status === 'pending' ? 'In review' : doc.status}
+              {doc.status === 'pending' ? (staff ? 'In review' : 'Received')
+                : doc.status === 'verified' ? (staff ? 'verified' : 'Accepted')
+                : staff ? doc.status : 'Please resend'}
             </span>
             {staff && INCOME_DOC_TYPES.includes(doc.type) && (
               <ExtractedDataBadge extraction={extractions?.[doc.id] ?? null} isIncomeDoc />

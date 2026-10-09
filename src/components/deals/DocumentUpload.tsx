@@ -7,6 +7,7 @@ import { DOCUMENT_TYPE_CONFIG, type DocumentType } from '@/types/deal';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 import { useQueryClient } from '@tanstack/react-query';
+import { useAuth } from '@/contexts/AuthContext';
 import { uploadDealDocuments, type PendingUpload, type UploadType } from '@/lib/uploads';
 
 interface DocumentUploadProps {
@@ -43,6 +44,7 @@ export function DocumentUpload({ dealId, onUploaded, onChange, defaultType = 'au
   const [uploading, setUploading] = useState(false);
   const [done, setDone] = useState<Record<number, boolean>>({});
   const qc = useQueryClient();
+  const { isStaff } = useAuth();
 
   const update = useCallback((next: PendingUpload[]) => {
     setFiles(next);
@@ -69,7 +71,7 @@ export function DocumentUpload({ dealId, onUploaded, onChange, defaultType = 'au
     setUploading(true);
     setDone({});
     try {
-      const result = await uploadDealDocuments(dealId, files, (i, ok) => setDone((d) => ({ ...d, [i]: ok })));
+      const result = await uploadDealDocuments(dealId, files, (i, ok) => setDone((d) => ({ ...d, [i]: ok })), { logTimeline: isStaff });
       if (result.failed.length) {
         toast({ title: `${result.failed.length} file(s) failed`, description: result.failed.map((f) => `${f.name}: ${f.error}`).join('\n'), variant: 'destructive' });
       }

@@ -106,7 +106,7 @@ export function DealSubmissionForm({ mode }: { mode: 'dealer' | 'staff' }) {
 
       if (files.length) {
         setBusy(`Uploading ${files.length} document${files.length === 1 ? '' : 's'}…`);
-        const result = await uploadDealDocuments(dealId as string, files);
+        const result = await uploadDealDocuments(dealId as string, files, undefined, { logTimeline: mode === 'staff' });
         if (result.failed.length) {
           toast({ title: `${result.failed.length} file(s) could not be uploaded`, description: 'You can add them from the deal page.', variant: 'destructive' });
         }

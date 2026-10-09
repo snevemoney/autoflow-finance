@@ -56,6 +56,8 @@ export async function uploadDealDocuments(
   dealId: string,
   uploads: PendingUpload[],
   onFileDone?: (index: number, ok: boolean) => void,
+  /** staff uploads get a timeline entry; dealers can't write the internal timeline (each file is logged when it's sorted) */
+  opts: { logTimeline?: boolean } = {},
 ): Promise<UploadResult> {
   const { data: { user } } = await supabase.auth.getUser();
   const rows: Record<string, unknown>[] = [];
@@ -106,13 +108,15 @@ export async function uploadDealDocuments(
   if (error) throw error;
   const documentIds = (data ?? []).map((d) => d.id);
 
-  await supabase.from('deal_timeline').insert({
-    deal_id: dealId,
-    type: 'document_upload',
-    description: `${documentIds.length} document${documentIds.length === 1 ? '' : 's'} uploaded`,
-    created_by: user?.id ?? null,
-    metadata: { document_ids: documentIds },
-  }).then(() => undefined, () => undefined); // dealers can't write the timeline; staff entry only
+  if (opts.logTimeline) {
+    await supabase.from('deal_timeline').insert({
+      deal_id: dealId,
+      type: 'document_upload',
+      description: `${documentIds.length} document${documentIds.length === 1 ? '' : 's'} uploaded`,
+      created_by: user?.id ?? null,
+      metadata: { document_ids: documentIds },
+    }).then(() => undefined, () => undefined);
+  }
 
   await processDocuments(documentIds);
   return { documentIds, failed };

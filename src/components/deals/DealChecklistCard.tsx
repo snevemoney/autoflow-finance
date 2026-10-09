@@ -1,4 +1,4 @@
-import { CheckCircle2, AlertTriangle, Send, Loader2, FileCheck2, Sparkles, X, Inbox } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, Send, Loader2, FileCheck2, Sparkles, X, Inbox, Circle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -58,21 +58,25 @@ export function DealChecklistCard({ dealId, staff = true, documentsReading = fal
         <div className="divide-y rounded-lg border">
           {items.map((item) => {
             const req = requests.find((r) => r.id === item.open_request_id);
+            // while uploads are still being sorted, an unticked item may just be unread — not missing yet
+            const pending = !item.satisfied && !req && documentsReading;
             return (
-              <div key={item.item_key} className={cn('flex items-center gap-3 px-3 py-2.5 text-sm', !item.satisfied && 'bg-warning/5')}>
+              <div key={item.item_key} className={cn('flex items-center gap-3 px-3 py-2.5 text-sm', !item.satisfied && !pending && 'bg-warning/5')}>
                 {item.satisfied
                   ? <CheckCircle2 className="h-4 w-4 text-success shrink-0" />
-                  : <AlertTriangle className="h-4 w-4 text-warning shrink-0" />}
+                  : pending
+                    ? <Circle className="h-4 w-4 text-muted-foreground/60 shrink-0" />
+                    : <AlertTriangle className="h-4 w-4 text-warning shrink-0" />}
                 <div className="flex-1 min-w-0">
                   <p className="font-medium">{item.label}</p>
                   {!item.satisfied && (
                     <p className="text-xs text-muted-foreground">
                       {req ? `Requested ${ago(req.created_at, { addSuffix: true })}${req.source === 'automation' ? ' by AutoFlow' : ''}`
-                        : 'Missing from submission'}
+                        : pending ? 'Checking the uploaded documents…' : 'Missing from submission'}
                     </p>
                   )}
                 </div>
-                {!item.satisfied && staff && (req ? (
+                {!item.satisfied && !pending && staff && (req ? (
                   <Badge variant="outline" className="text-xs gap-1"><Send className="h-3 w-3" /> Requested</Badge>
                 ) : (
                   <Button size="sm" variant="outline" className="h-7 text-xs" disabled={requestOne.isPending}
@@ -86,7 +90,7 @@ export function DealChecklistCard({ dealId, staff = true, documentsReading = fal
           {!items.length && !isLoading && <p className="px-3 py-4 text-sm text-muted-foreground">No requirements configured.</p>}
         </div>
 
-        {staff && missingUnrequested.length > 1 && (
+        {staff && !documentsReading && missingUnrequested.length > 1 && (
           <Button size="sm" className="w-full" onClick={onRequestAll} disabled={requestAll.isPending}>
             {requestAll.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Send className="h-4 w-4 mr-2" />}
             Request all missing from dealer

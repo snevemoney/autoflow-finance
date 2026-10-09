@@ -221,6 +221,16 @@ SELECT pg_temp.check((SELECT status = 'funded' AND funded_amount = 30000 AND fun
                      'marked funded, funded amount defaults to the loan amount');
 SELECT pg_temp.check((SELECT count(*) >= 1 FROM public.notifications WHERE user_id = '00000000-0000-0000-0000-0000000000d1'
                       AND title LIKE '%Funded' AND type = 'success'), 'the dealer is told the deal funded');
+-- each person's action is logged before the move it causes
+SELECT pg_temp.check((
+  SELECT array_agg(description ORDER BY created_at) FILTER (WHERE type = 'decision' OR metadata ->> 'automation' = 'auto_route')
+  FROM public.deal_timeline WHERE deal_id = :'deal_a'
+) @> ARRAY['Credit approved — Stable employment'] AND (
+  SELECT array_position(a, 'Credit approved — Stable employment') < array_position(a, 'Auto-routed to Income Verification — Credit approved')
+     AND array_position(a, 'Approved for funding — All stips cleared') < array_position(a, 'Auto-routed to Approved — Funding checklist complete')
+     AND array_position(a, 'Loan funded') < array_position(a, 'Auto-routed to Funded — Loan funded')
+  FROM (SELECT array_agg(description ORDER BY created_at) a FROM public.deal_timeline WHERE deal_id = :'deal_a') t
+), 'the history shows each decision before the move it caused');
 
 -- ---------------------------------------------------------------- 5. staff deal, decline, manual moves, switches
 SET ROLE authenticated;
