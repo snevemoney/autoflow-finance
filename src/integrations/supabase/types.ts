@@ -14,36 +14,6 @@ export type Database = {
   }
   public: {
     Tables: {
-      app_settings: {
-        Row: {
-          automations: Json
-          funding_checklist_items: Json
-          id: boolean
-          preferences: Json
-          required_documents: Database["public"]["Enums"]["document_type"][]
-          updated_at: string
-          updated_by: string | null
-        }
-        Insert: {
-          automations?: Json
-          funding_checklist_items?: Json
-          id?: boolean
-          preferences?: Json
-          required_documents?: Database["public"]["Enums"]["document_type"][]
-          updated_at?: string
-          updated_by?: string | null
-        }
-        Update: {
-          automations?: Json
-          funding_checklist_items?: Json
-          id?: boolean
-          preferences?: Json
-          required_documents?: Database["public"]["Enums"]["document_type"][]
-          updated_at?: string
-          updated_by?: string | null
-        }
-        Relationships: []
-      }
       applicant_debts: {
         Row: {
           created_at: string
@@ -243,32 +213,6 @@ export type Database = {
           },
         ]
       }
-      dealer_users: {
-        Row: {
-          created_at: string
-          dealer_id: string
-          user_id: string
-        }
-        Insert: {
-          created_at?: string
-          dealer_id: string
-          user_id: string
-        }
-        Update: {
-          created_at?: string
-          dealer_id?: string
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "dealer_users_dealer_id_fkey"
-            columns: ["dealer_id"]
-            isOneToOne: false
-            referencedRelation: "dealers"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       dealers: {
         Row: {
           city: string | null
@@ -326,10 +270,6 @@ export type Database = {
           created_at: string
           created_by: string | null
           credit_bureau: Database["public"]["Enums"]["credit_bureau"] | null
-          credit_decision: string
-          credit_decision_at: string | null
-          credit_decision_by: string | null
-          credit_decision_notes: string | null
           credit_pulled_at: string | null
           credit_score: number | null
           credit_tier: Database["public"]["Enums"]["credit_tier"] | null
@@ -343,21 +283,13 @@ export type Database = {
           flags: string[] | null
           funded_amount: number | null
           funded_at: string | null
-          funded_by: string | null
-          funding_approved_at: string | null
-          funding_approved_by: string | null
-          funding_checklist: Json
           id: string
-          income_verified_at: string | null
-          last_routed_at: string | null
           loan_amount: number
           ltv: number | null
           monthly_payment: number
           priority: Database["public"]["Enums"]["deal_priority"]
           residency_status: string | null
           status: Database["public"]["Enums"]["deal_status"]
-          status_changed_at: string
-          submitted_by_dealer: boolean
           term_months: number
           total_cost: number
           total_interest: number
@@ -381,10 +313,6 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           credit_bureau?: Database["public"]["Enums"]["credit_bureau"] | null
-          credit_decision?: string
-          credit_decision_at?: string | null
-          credit_decision_by?: string | null
-          credit_decision_notes?: string | null
           credit_pulled_at?: string | null
           credit_score?: number | null
           credit_tier?: Database["public"]["Enums"]["credit_tier"] | null
@@ -398,21 +326,13 @@ export type Database = {
           flags?: string[] | null
           funded_amount?: number | null
           funded_at?: string | null
-          funded_by?: string | null
-          funding_approved_at?: string | null
-          funding_approved_by?: string | null
-          funding_checklist?: Json
           id?: string
-          income_verified_at?: string | null
-          last_routed_at?: string | null
           loan_amount: number
           ltv?: number | null
           monthly_payment: number
           priority?: Database["public"]["Enums"]["deal_priority"]
           residency_status?: string | null
           status?: Database["public"]["Enums"]["deal_status"]
-          status_changed_at?: string
-          submitted_by_dealer?: boolean
           term_months: number
           total_cost: number
           total_interest: number
@@ -436,10 +356,6 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           credit_bureau?: Database["public"]["Enums"]["credit_bureau"] | null
-          credit_decision?: string
-          credit_decision_at?: string | null
-          credit_decision_by?: string | null
-          credit_decision_notes?: string | null
           credit_pulled_at?: string | null
           credit_score?: number | null
           credit_tier?: Database["public"]["Enums"]["credit_tier"] | null
@@ -453,21 +369,13 @@ export type Database = {
           flags?: string[] | null
           funded_amount?: number | null
           funded_at?: string | null
-          funded_by?: string | null
-          funding_approved_at?: string | null
-          funding_approved_by?: string | null
-          funding_checklist?: Json
           id?: string
-          income_verified_at?: string | null
-          last_routed_at?: string | null
           loan_amount?: number
           ltv?: number | null
           monthly_payment?: number
           priority?: Database["public"]["Enums"]["deal_priority"]
           residency_status?: string | null
           status?: Database["public"]["Enums"]["deal_status"]
-          status_changed_at?: string
-          submitted_by_dealer?: boolean
           term_months?: number
           total_cost?: number
           total_interest?: number
@@ -507,135 +415,41 @@ export type Database = {
           },
         ]
       }
-      document_requests: {
-        Row: {
-          created_at: string
-          deal_id: string
-          dealer_id: string
-          doc_type: Database["public"]["Enums"]["document_type"]
-          fulfilled_at: string | null
-          fulfilled_document_id: string | null
-          id: string
-          label: string
-          message: string | null
-          requested_by: string | null
-          source: string
-          status: string
-        }
-        Insert: {
-          created_at?: string
-          deal_id: string
-          dealer_id: string
-          doc_type: Database["public"]["Enums"]["document_type"]
-          fulfilled_at?: string | null
-          fulfilled_document_id?: string | null
-          id?: string
-          label: string
-          message?: string | null
-          requested_by?: string | null
-          source?: string
-          status?: string
-        }
-        Update: {
-          created_at?: string
-          deal_id?: string
-          dealer_id?: string
-          doc_type?: Database["public"]["Enums"]["document_type"]
-          fulfilled_at?: string | null
-          fulfilled_document_id?: string | null
-          id?: string
-          label?: string
-          message?: string | null
-          requested_by?: string | null
-          source?: string
-          status?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "document_requests_deal_id_fkey"
-            columns: ["deal_id"]
-            isOneToOne: false
-            referencedRelation: "deals"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "document_requests_dealer_id_fkey"
-            columns: ["dealer_id"]
-            isOneToOne: false
-            referencedRelation: "dealers"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "document_requests_fulfilled_document_id_fkey"
-            columns: ["fulfilled_document_id"]
-            isOneToOne: false
-            referencedRelation: "documents"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       documents: {
         Row: {
-          ai_model: string | null
-          classification_confidence: string | null
           created_at: string
           deal_id: string
           file_size: number
           file_url: string
           id: string
-          mime_type: string | null
           name: string
           notes: string | null
-          preview_path: string | null
-          processed_at: string | null
-          processing_error: string | null
-          processing_status: string
           status: Database["public"]["Enums"]["document_status"]
-          storage_path: string | null
           type: Database["public"]["Enums"]["document_type"]
-          type_source: string
           uploaded_by: string | null
         }
         Insert: {
-          ai_model?: string | null
-          classification_confidence?: string | null
           created_at?: string
           deal_id: string
           file_size?: number
           file_url: string
           id?: string
-          mime_type?: string | null
           name: string
           notes?: string | null
-          preview_path?: string | null
-          processed_at?: string | null
-          processing_error?: string | null
-          processing_status?: string
           status?: Database["public"]["Enums"]["document_status"]
-          storage_path?: string | null
           type?: Database["public"]["Enums"]["document_type"]
-          type_source?: string
           uploaded_by?: string | null
         }
         Update: {
-          ai_model?: string | null
-          classification_confidence?: string | null
           created_at?: string
           deal_id?: string
           file_size?: number
           file_url?: string
           id?: string
-          mime_type?: string | null
           name?: string
           notes?: string | null
-          preview_path?: string | null
-          processed_at?: string | null
-          processing_error?: string | null
-          processing_status?: string
           status?: Database["public"]["Enums"]["document_status"]
-          storage_path?: string | null
           type?: Database["public"]["Enums"]["document_type"]
-          type_source?: string
           uploaded_by?: string | null
         }
         Relationships: [
@@ -724,8 +538,6 @@ export type Database = {
       income_sources: {
         Row: {
           additional_docs_requested: string[]
-          auto_fill_document_id: string | null
-          auto_filled_at: string | null
           benefit_cap_applied: boolean
           calc_method: string
           calculated_monthly_income: number | null
@@ -735,7 +547,6 @@ export type Database = {
           deal_id: string
           employer_name: string
           flag_reasons: string[] | null
-          gross_per_period: number | null
           hourly_rate: number | null
           hours_per_week: number | null
           id: string
@@ -758,8 +569,6 @@ export type Database = {
         }
         Insert: {
           additional_docs_requested?: string[]
-          auto_fill_document_id?: string | null
-          auto_filled_at?: string | null
           benefit_cap_applied?: boolean
           calc_method?: string
           calculated_monthly_income?: number | null
@@ -769,7 +578,6 @@ export type Database = {
           deal_id: string
           employer_name: string
           flag_reasons?: string[] | null
-          gross_per_period?: number | null
           hourly_rate?: number | null
           hours_per_week?: number | null
           id?: string
@@ -792,8 +600,6 @@ export type Database = {
         }
         Update: {
           additional_docs_requested?: string[]
-          auto_fill_document_id?: string | null
-          auto_filled_at?: string | null
           benefit_cap_applied?: boolean
           calc_method?: string
           calculated_monthly_income?: number | null
@@ -803,7 +609,6 @@ export type Database = {
           deal_id?: string
           employer_name?: string
           flag_reasons?: string[] | null
-          gross_per_period?: number | null
           hourly_rate?: number | null
           hours_per_week?: number | null
           id?: string
@@ -825,13 +630,6 @@ export type Database = {
           ytd_months?: number | null
         }
         Relationships: [
-          {
-            foreignKeyName: "income_sources_auto_fill_document_id_fkey"
-            columns: ["auto_fill_document_id"]
-            isOneToOne: false
-            referencedRelation: "documents"
-            referencedColumns: ["id"]
-          },
           {
             foreignKeyName: "income_sources_customer_id_fkey"
             columns: ["customer_id"]
@@ -993,97 +791,9 @@ export type Database = {
       }
     }
     Views: {
-      dealer_stats: {
-        Row: {
-          active_deals: number | null
-          approval_rate: number | null
-          dealer_id: string | null
-          declined_deals: number | null
-          funded_deals: number | null
-          total_deals: number | null
-        }
-        Relationships: []
-      }
+      [_ in never]: never
     }
     Functions: {
-      approve_funding: {
-        Args: {
-          _deal_id: string
-          _notes?: string
-        }
-        Returns: Database["public"]["Enums"]["deal_status"]
-      }
-      automation_enabled: {
-        Args: {
-          _key: string
-        }
-        Returns: boolean
-      }
-      autoroute_deal: {
-        Args: {
-          _deal_id: string
-        }
-        Returns: Database["public"]["Enums"]["deal_status"]
-      }
-      can_access_deal: {
-        Args: {
-          _deal_id: string
-        }
-        Returns: boolean
-      }
-      can_access_document_path: {
-        Args: {
-          _name: string
-        }
-        Returns: boolean
-      }
-      current_dealer_id: {
-        Args: never
-        Returns: string
-      }
-      deal_checklist: {
-        Args: {
-          _deal_id: string
-        }
-        Returns: {
-          doc_types: Database["public"]["Enums"]["document_type"][]
-          document_count: number
-          item_key: string
-          label: string
-          open_request_id: string
-          satisfied: boolean
-        }[]
-      }
-      deal_documents_settled: {
-        Args: {
-          _deal_id: string
-        }
-        Returns: boolean
-      }
-      deal_income_verified: {
-        Args: {
-          _deal_id: string
-        }
-        Returns: boolean
-      }
-      deal_status_label: {
-        Args: {
-          _s: Database["public"]["Enums"]["deal_status"]
-        }
-        Returns: string
-      }
-      department_role: {
-        Args: {
-          _d: Database["public"]["Enums"]["department"]
-        }
-        Returns: Database["public"]["Enums"]["app_role"]
-      }
-      document_type_label: {
-        Args: {
-          _t: Database["public"]["Enums"]["document_type"]
-        }
-        Returns: string
-      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -1091,114 +801,73 @@ export type Database = {
         }
         Returns: boolean
       }
-      is_staff: {
-        Args: {
-          _user_id: string
-        }
-        Returns: boolean
-      }
-      mark_funded: {
-        Args: {
-          _amount?: number
-          _deal_id: string
-        }
-        Returns: Database["public"]["Enums"]["deal_status"]
-      }
-      next_deal_status: {
-        Args: {
-          _deal: Database["public"]["Tables"]["deals"]["Row"]
-        }
-        Returns: {
-          next_status: Database["public"]["Enums"]["deal_status"]
-          reason: string
-        }[]
-      }
-      notify_dealer: {
-        Args: {
-          _deal_id: string
-          _dealer_id: string
-          _message: string
-          _title: string
-          _type: Database["public"]["Enums"]["notification_type"]
-        }
-        Returns: undefined
-      }
-      notify_role: {
-        Args: {
-          _deal_id: string
-          _message: string
-          _role: Database["public"]["Enums"]["app_role"]
-          _title: string
-          _type: Database["public"]["Enums"]["notification_type"]
-        }
-        Returns: undefined
-      }
-      record_credit_decision: {
-        Args: {
-          _bureau?: Database["public"]["Enums"]["credit_bureau"]
-          _deal_id: string
-          _decision: string
-          _notes?: string
-          _score?: number
-          _tier?: Database["public"]["Enums"]["credit_tier"]
-        }
-        Returns: Database["public"]["Enums"]["deal_status"]
-      }
-      request_document: {
-        Args: {
-          _deal_id: string
-          _doc_type: Database["public"]["Enums"]["document_type"]
-          _message?: string
-        }
-        Returns: string
-      }
-      request_missing_documents: {
-        Args: {
-          _deal_id: string
-        }
-        Returns: number
-      }
-      status_department: {
-        Args: {
-          _s: Database["public"]["Enums"]["deal_status"]
-        }
-        Returns: Database["public"]["Enums"]["department"]
-      }
-      submit_deal: {
-        Args: {
-          _payload: Json
-        }
-        Returns: string
-      }
-      sync_document_requests: {
-        Args: {
-          _deal_id: string
-        }
-        Returns: number
-      }
-      update_funding_checklist: {
-        Args: {
-          _deal_id: string
-          _items: Json
-        }
-        Returns: Json
-      }
     }
     Enums: {
-      app_role: "dealer" | "credit_analyst" | "income_verifier" | "funding_manager" | "admin"
+      app_role:
+        | "dealer"
+        | "credit_analyst"
+        | "income_verifier"
+        | "funding_manager"
+        | "admin"
       credit_bureau: "experian" | "equifax" | "transunion"
       credit_tier: "prime" | "near_prime" | "subprime" | "deep_subprime"
       deal_priority: "low" | "normal" | "high" | "urgent"
-      deal_status: "new_submission" | "document_review" | "credit_review" | "income_verification" | "funding_review" | "approved" | "funded" | "declined" | "incomplete"
+      deal_status:
+        | "new_submission"
+        | "document_review"
+        | "credit_review"
+        | "income_verification"
+        | "funding_review"
+        | "approved"
+        | "funded"
+        | "declined"
+        | "incomplete"
       dealer_status: "active" | "suspended" | "pending"
-      debt_type: "garnishment" | "child_support" | "auto_loan" | "student_loan" | "credit_card" | "mortgage" | "medical" | "other" | "rent"
+      debt_type:
+        | "garnishment"
+        | "child_support"
+        | "auto_loan"
+        | "student_loan"
+        | "credit_card"
+        | "mortgage"
+        | "medical"
+        | "other"
+        | "rent"
       department: "credit" | "income" | "funding" | "admin"
       document_status: "pending" | "verified" | "rejected"
-      document_type: "credit_application" | "income_verification" | "pay_stub" | "bank_statement" | "vehicle_invoice" | "trade_in" | "insurance" | "id_verification" | "other"
-      income_source_type: "salaried" | "part_time" | "self_employed" | "contractor" | "seasonal" | "education" | "unemployed" | "pension" | "government_assistance"
-      income_verification_status: "unverified" | "verified" | "flagged" | "insufficient_docs" | "needs_review"
+      document_type:
+        | "credit_application"
+        | "income_verification"
+        | "pay_stub"
+        | "bank_statement"
+        | "vehicle_invoice"
+        | "trade_in"
+        | "insurance"
+        | "id_verification"
+        | "other"
+      income_source_type:
+        | "salaried"
+        | "part_time"
+        | "self_employed"
+        | "contractor"
+        | "seasonal"
+        | "education"
+        | "unemployed"
+        | "pension"
+        | "government_assistance"
+      income_verification_status:
+        | "unverified"
+        | "verified"
+        | "flagged"
+        | "insufficient_docs"
+        | "needs_review"
       notification_type: "info" | "success" | "warning" | "error"
-      timeline_event_type: "status_change" | "document_upload" | "note_added" | "assignment" | "email_sent" | "automation" | "document_request" | "decision"
+      timeline_event_type:
+        | "status_change"
+        | "document_upload"
+        | "note_added"
+        | "assignment"
+        | "email_sent"
       vehicle_condition: "new" | "used" | "certified"
     }
     CompositeTypes: {
@@ -1215,12 +884,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -1244,11 +913,11 @@ export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -1269,11 +938,11 @@ export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -1294,11 +963,11 @@ export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -1311,11 +980,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+    : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -1327,20 +996,78 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      app_role: ["dealer", "credit_analyst", "income_verifier", "funding_manager", "admin"],
+      app_role: [
+        "dealer",
+        "credit_analyst",
+        "income_verifier",
+        "funding_manager",
+        "admin",
+      ],
       credit_bureau: ["experian", "equifax", "transunion"],
       credit_tier: ["prime", "near_prime", "subprime", "deep_subprime"],
       deal_priority: ["low", "normal", "high", "urgent"],
-      deal_status: ["new_submission", "document_review", "credit_review", "income_verification", "funding_review", "approved", "funded", "declined", "incomplete"],
+      deal_status: [
+        "new_submission",
+        "document_review",
+        "credit_review",
+        "income_verification",
+        "funding_review",
+        "approved",
+        "funded",
+        "declined",
+        "incomplete",
+      ],
       dealer_status: ["active", "suspended", "pending"],
-      debt_type: ["garnishment", "child_support", "auto_loan", "student_loan", "credit_card", "mortgage", "medical", "other", "rent"],
+      debt_type: [
+        "garnishment",
+        "child_support",
+        "auto_loan",
+        "student_loan",
+        "credit_card",
+        "mortgage",
+        "medical",
+        "other",
+        "rent",
+      ],
       department: ["credit", "income", "funding", "admin"],
       document_status: ["pending", "verified", "rejected"],
-      document_type: ["credit_application", "income_verification", "pay_stub", "bank_statement", "vehicle_invoice", "trade_in", "insurance", "id_verification", "other"],
-      income_source_type: ["salaried", "part_time", "self_employed", "contractor", "seasonal", "education", "unemployed", "pension", "government_assistance"],
-      income_verification_status: ["unverified", "verified", "flagged", "insufficient_docs", "needs_review"],
+      document_type: [
+        "credit_application",
+        "income_verification",
+        "pay_stub",
+        "bank_statement",
+        "vehicle_invoice",
+        "trade_in",
+        "insurance",
+        "id_verification",
+        "other",
+      ],
+      income_source_type: [
+        "salaried",
+        "part_time",
+        "self_employed",
+        "contractor",
+        "seasonal",
+        "education",
+        "unemployed",
+        "pension",
+        "government_assistance",
+      ],
+      income_verification_status: [
+        "unverified",
+        "verified",
+        "flagged",
+        "insufficient_docs",
+        "needs_review",
+      ],
       notification_type: ["info", "success", "warning", "error"],
-      timeline_event_type: ["status_change", "document_upload", "note_added", "assignment", "email_sent", "automation", "document_request", "decision"],
+      timeline_event_type: [
+        "status_change",
+        "document_upload",
+        "note_added",
+        "assignment",
+        "email_sent",
+      ],
       vehicle_condition: ["new", "used", "certified"],
     },
   },
