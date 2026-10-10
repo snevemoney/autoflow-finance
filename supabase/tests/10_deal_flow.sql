@@ -79,7 +79,18 @@ SELECT pg_temp.check((SELECT count(*) = 1 FROM public.deals), 'dealer sees their
 SELECT pg_temp.check((SELECT count(*) = 1 FROM public.customers), 'dealer sees their own customer');
 SELECT pg_temp.check((SELECT count(*) = 0 FROM public.income_sources), 'dealer cannot see underwriting (income sources)');
 SELECT pg_temp.check((SELECT count(*) = 0 FROM public.deal_timeline), 'dealer cannot see the internal timeline');
-UPDATE public.deals SET status = 'approved' WHERE id = :'deal_a';
+RESET ROLE;
+SELECT set_config('test.deal_a', :'deal_a', false);
+DO $$ BEGIN
+  SET LOCAL ROLE authenticated;
+  PERFORM set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-0000000000d1', true);
+  BEGIN
+    UPDATE public.deals SET status = 'approved' WHERE id = current_setting('test.deal_a')::uuid;
+    RAISE EXCEPTION 'FAILED: a dealer updated a deal directly';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+END $$;
+SET ROLE authenticated;
 SELECT pg_temp.act_as('00000000-0000-0000-0000-0000000000d2');
 SELECT pg_temp.check((SELECT count(*) = 0 FROM public.deals), 'another dealer cannot see the deal');
 SELECT pg_temp.check((SELECT count(*) = 0 FROM public.customers), 'another dealer cannot see the customer');
@@ -105,7 +116,6 @@ SET ROLE authenticated;
 SELECT pg_temp.act_as('00000000-0000-0000-0000-0000000000d1');
 INSERT INTO storage.objects (bucket_id, name) VALUES ('documents', :'deal_a' || '/stub.pdf');
 RESET ROLE;
-SELECT set_config('test.deal_a', :'deal_a', false);
 DO $$ BEGIN
   SET LOCAL ROLE authenticated;
   PERFORM set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-0000000000d2', true);
@@ -119,6 +129,10 @@ END $$;
 -- ---------------------------------------------------------------- 3. uploads → auto-sort → gap requests
 SET ROLE authenticated;
 SELECT pg_temp.act_as('00000000-0000-0000-0000-0000000000d1');
+-- files are uploaded to storage first; a document row must point at an uploaded file
+INSERT INTO storage.objects (bucket_id, name) VALUES
+  ('documents', :'deal_a' || '/scan1.pdf'), ('documents', :'deal_a' || '/scan2.pdf'),
+  ('documents', :'deal_a' || '/scan3.pdf'), ('documents', :'deal_a' || '/paie.jpg');
 INSERT INTO public.documents (deal_id, name, type, file_url, storage_path, processing_status, type_source) VALUES
   (:'deal_a', 'scan1.pdf', 'other', :'deal_a' || '/scan1.pdf', :'deal_a' || '/scan1.pdf', 'pending', 'auto'),
   (:'deal_a', 'scan2.pdf', 'other', :'deal_a' || '/scan2.pdf', :'deal_a' || '/scan2.pdf', 'pending', 'auto'),
@@ -157,6 +171,7 @@ SELECT pg_temp.check((SELECT count(*) = 1 FROM public.document_requests WHERE de
 SET ROLE authenticated;
 SELECT pg_temp.act_as('00000000-0000-0000-0000-0000000000d1');
 SELECT pg_temp.check((SELECT count(*) = 1 FROM public.document_requests WHERE status = 'open'), 'dealer sees the open request in the portal');
+INSERT INTO storage.objects (bucket_id, name) VALUES ('documents', :'deal_a' || '/assurance.pdf');
 INSERT INTO public.documents (deal_id, name, type, file_url, storage_path, processing_status, type_source)
 VALUES (:'deal_a', 'assurance.pdf', 'insurance', :'deal_a' || '/assurance.pdf', :'deal_a' || '/assurance.pdf', 'pending', 'manual');
 RESET ROLE;
@@ -245,13 +260,13 @@ RESET ROLE;
 SELECT pg_temp.check((SELECT dealer_id = '10000000-0000-0000-0000-0000000000b2' AND monthly_payment = 416.67 AND NOT submitted_by_dealer
                       FROM public.deals WHERE id = :'deal_b'), 'staff can enter a deal for any dealer (0% APR payment handled)');
 SELECT pg_temp.check((SELECT count(*) = 1 FROM public.deal_checklist(:'deal_b') WHERE item_key = 'income_employment'),
-                     'a deal with no income source still needs proof of income');
+                     'a deal submitted without income details still needs proof of income');
 
 SET ROLE authenticated;
 SELECT pg_temp.act_as('00000000-0000-0000-0000-00000000000a');
 SELECT public.request_document(:'deal_b', 'bank_statement', 'Last 3 months please');
 SELECT public.request_document(:'deal_b', 'bank_statement', 'again');
-UPDATE public.deals SET status = 'credit_review' WHERE id = :'deal_b';
+SELECT public.admin_move_deal(:'deal_b', 'credit_review');
 RESET ROLE;
 SELECT pg_temp.check((SELECT count(*) = 1 FROM public.document_requests WHERE deal_id = :'deal_b'), 'a staff request is not duplicated');
 SELECT pg_temp.check((SELECT description = 'Moved from Document Review to Credit Review' AND created_by = '00000000-0000-0000-0000-00000000000a'
@@ -269,7 +284,7 @@ UPDATE public.app_settings SET automations = automations || '{"auto_route": fals
 SET ROLE authenticated;
 SELECT pg_temp.act_as('00000000-0000-0000-0000-00000000000a');
 SELECT public.submit_deal('{"dealer_id": "10000000-0000-0000-0000-0000000000a1", "customer": {"first_name": "A", "last_name": "B"},
-  "financing": {"loan_amount": "1000", "term_months": "12"}}'::jsonb) AS deal_c \gset
+  "vehicle": {"invoice_price": "1500"}, "financing": {"loan_amount": "1000", "term_months": "12"}}'::jsonb) AS deal_c \gset
 RESET ROLE;
 SELECT pg_temp.check((SELECT status = 'new_submission' FROM public.deals WHERE id = :'deal_c'), 'auto-routing can be switched off');
 SELECT pg_temp.check((SELECT count(*) = 0 FROM public.notifications WHERE deal_id = :'deal_c'), 'new-deal notifications can be switched off');
