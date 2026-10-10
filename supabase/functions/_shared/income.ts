@@ -80,11 +80,6 @@ export function employerWords(name: string): string[] {
     .filter((w) => w && !GENERIC_WORDS.has(w));
 }
 
-/** Kept for callers that want a comparable string. */
-export function normalizeEmployer(name: string): string {
-  return employerWords(name).join(" ");
-}
-
 /**
  * Same employer when the distinctive words of one name are all in the other ("Desjardins" =
  * "Mouvement Desjardins"), or they spell the same thing without spaces ("WAL-MART" =
