@@ -322,8 +322,9 @@ BEGIN
   SELECT * INTO _deal FROM public.deals WHERE id = _deal_id FOR UPDATE;
   IF NOT FOUND THEN RETURN NULL; END IF;
 
-  -- an admin is moving this deal by hand right now (admin_move_deal): leave it where it is put
-  IF current_setting('autoflow.hold_deal', true) = _deal_id::text THEN
+  -- an admin is moving this deal by hand right now (admin_move_deal), or a one-time data fix
+  -- runs ('all'): leave it where it is put
+  IF current_setting('autoflow.hold_deal', true) IN (_deal_id::text, 'all') THEN
     RETURN _deal.status;
   END IF;
 

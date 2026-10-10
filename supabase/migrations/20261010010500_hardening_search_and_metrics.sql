@@ -69,10 +69,21 @@ CREATE TRIGGER vehicles_search_text AFTER UPDATE OF year, make, model ON public.
   FOR EACH ROW WHEN (OLD.year IS DISTINCT FROM NEW.year OR OLD.make IS DISTINCT FROM NEW.make OR OLD.model IS DISTINCT FROM NEW.model)
   EXECUTE FUNCTION public.trg_refresh_deal_search_text();
 
--- fill existing deals without touching their updated_at
-ALTER TABLE public.deals DISABLE TRIGGER update_deals_updated_at;
+-- "updated" means a real change: maintenance columns (search_text) don't count, and an update
+-- that changes nothing keeps the old date. Used by every table's updated_at trigger.
+CREATE OR REPLACE FUNCTION public.update_updated_at_column()
+RETURNS trigger LANGUAGE plpgsql SET search_path = public AS $$
+BEGIN
+  IF (to_jsonb(NEW) - ARRAY['updated_at', 'search_text']) = (to_jsonb(OLD) - ARRAY['updated_at', 'search_text']) THEN
+    NEW.updated_at := OLD.updated_at;
+  ELSE
+    NEW.updated_at := now();
+  END IF;
+  RETURN NEW;
+END $$;
+
+-- fill existing deals (their updated_at stays as it was)
 UPDATE public.deals SET search_text = public.deal_search_text(deal_number, customer_id, vehicle_id);
-ALTER TABLE public.deals ENABLE TRIGGER update_deals_updated_at;
 
 DO $$
 DECLARE _s text;
@@ -260,10 +271,10 @@ BEGIN
       SELECT d.dealer_id, dl.name,
              count(*) FILTER (WHERE in_submitted) AS submitted,
              count(*) FILTER (WHERE in_funded) AS funded_count,
-             coalesce(sum(coalesce(funded_amount, loan_amount)) FILTER (WHERE in_funded), 0) AS funded_amount,
+             coalesce(sum(coalesce(d.funded_amount, d.loan_amount)) FILTER (WHERE in_funded), 0) AS funded_amount,
              count(*) FILTER (WHERE in_declined) AS declined,
-             count(*) FILTER (WHERE in_submitted AND status IN ('approved', 'funded')) AS ok,
-             count(*) FILTER (WHERE in_submitted AND status IN ('approved', 'funded', 'declined')) AS decided
+             count(*) FILTER (WHERE in_submitted AND d.status IN ('approved', 'funded')) AS ok,
+             count(*) FILTER (WHERE in_submitted AND d.status IN ('approved', 'funded', 'declined')) AS decided
       FROM d JOIN public.dealers dl ON dl.id = d.dealer_id
       GROUP BY d.dealer_id, dl.name
       HAVING count(*) FILTER (WHERE in_submitted OR in_funded OR in_declined) > 0

@@ -14,6 +14,57 @@ export type Database = {
   }
   public: {
     Tables: {
+      ai_usage: {
+        Row: {
+          completion_tokens: number | null
+          cost: number | null
+          created_at: string
+          deal_id: string | null
+          document_id: string | null
+          error_code: string | null
+          error_detail: string | null
+          id: string
+          latency_ms: number | null
+          model: string | null
+          ok: boolean
+          prompt_tokens: number | null
+          purpose: string
+          user_id: string | null
+        }
+        Insert: {
+          completion_tokens?: number | null
+          cost?: number | null
+          created_at?: string
+          deal_id?: string | null
+          document_id?: string | null
+          error_code?: string | null
+          error_detail?: string | null
+          id?: string
+          latency_ms?: number | null
+          model?: string | null
+          ok?: boolean
+          prompt_tokens?: number | null
+          purpose: string
+          user_id?: string | null
+        }
+        Update: {
+          completion_tokens?: number | null
+          cost?: number | null
+          created_at?: string
+          deal_id?: string | null
+          document_id?: string | null
+          error_code?: string | null
+          error_detail?: string | null
+          id?: string
+          latency_ms?: number | null
+          model?: string | null
+          ok?: boolean
+          prompt_tokens?: number | null
+          purpose?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       app_settings: {
         Row: {
           automations: Json
@@ -104,6 +155,36 @@ export type Database = {
           },
         ]
       }
+      audit_log: {
+        Row: {
+          action: string
+          actor: string | null
+          at: string
+          changed: Json | null
+          id: number
+          row_id: string | null
+          table_name: string
+        }
+        Insert: {
+          action: string
+          actor?: string | null
+          at?: string
+          changed?: Json | null
+          id?: number
+          row_id?: string | null
+          table_name: string
+        }
+        Update: {
+          action?: string
+          actor?: string | null
+          at?: string
+          changed?: Json | null
+          id?: number
+          row_id?: string | null
+          table_name?: string
+        }
+        Relationships: []
+      }
       customers: {
         Row: {
           city: string | null
@@ -119,7 +200,6 @@ export type Database = {
           last_name: string
           monthly_income: number | null
           phone: string
-          ssn: string | null
           state: string | null
           street: string | null
           updated_at: string
@@ -140,7 +220,6 @@ export type Database = {
           last_name: string
           monthly_income?: number | null
           phone: string
-          ssn?: string | null
           state?: string | null
           street?: string | null
           updated_at?: string
@@ -161,7 +240,6 @@ export type Database = {
           last_name?: string
           monthly_income?: number | null
           phone?: string
-          ssn?: string | null
           state?: string | null
           street?: string | null
           updated_at?: string
@@ -326,6 +404,7 @@ export type Database = {
           created_at: string
           created_by: string | null
           credit_bureau: Database["public"]["Enums"]["credit_bureau"] | null
+          credit_conditions: Json
           credit_decision: string
           credit_decision_at: string | null
           credit_decision_by: string | null
@@ -336,6 +415,7 @@ export type Database = {
           customer_id: string
           deal_number: string
           dealer_id: string
+          dealer_message: string | null
           decision_at: string | null
           decision_by: string | null
           decision_notes: string | null
@@ -355,6 +435,7 @@ export type Database = {
           monthly_payment: number
           priority: Database["public"]["Enums"]["deal_priority"]
           residency_status: string | null
+          search_text: string | null
           status: Database["public"]["Enums"]["deal_status"]
           status_changed_at: string
           submitted_by_dealer: boolean
@@ -381,6 +462,7 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           credit_bureau?: Database["public"]["Enums"]["credit_bureau"] | null
+          credit_conditions?: Json
           credit_decision?: string
           credit_decision_at?: string | null
           credit_decision_by?: string | null
@@ -391,6 +473,7 @@ export type Database = {
           customer_id: string
           deal_number: string
           dealer_id: string
+          dealer_message?: string | null
           decision_at?: string | null
           decision_by?: string | null
           decision_notes?: string | null
@@ -410,6 +493,7 @@ export type Database = {
           monthly_payment: number
           priority?: Database["public"]["Enums"]["deal_priority"]
           residency_status?: string | null
+          search_text?: string | null
           status?: Database["public"]["Enums"]["deal_status"]
           status_changed_at?: string
           submitted_by_dealer?: boolean
@@ -436,6 +520,7 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           credit_bureau?: Database["public"]["Enums"]["credit_bureau"] | null
+          credit_conditions?: Json
           credit_decision?: string
           credit_decision_at?: string | null
           credit_decision_by?: string | null
@@ -446,6 +531,7 @@ export type Database = {
           customer_id?: string
           deal_number?: string
           dealer_id?: string
+          dealer_message?: string | null
           decision_at?: string | null
           decision_by?: string | null
           decision_notes?: string | null
@@ -465,6 +551,7 @@ export type Database = {
           monthly_payment?: number
           priority?: Database["public"]["Enums"]["deal_priority"]
           residency_status?: string | null
+          search_text?: string | null
           status?: Database["public"]["Enums"]["deal_status"]
           status_changed_at?: string
           submitted_by_dealer?: boolean
@@ -506,6 +593,33 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      document_access_log: {
+        Row: {
+          created_at: string
+          deal_id: string | null
+          document_id: string | null
+          id: string
+          kind: string
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          deal_id?: string | null
+          document_id?: string | null
+          id?: string
+          kind?: string
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          deal_id?: string | null
+          document_id?: string | null
+          id?: string
+          kind?: string
+          user_id?: string | null
+        }
+        Relationships: []
       }
       document_requests: {
         Row: {
@@ -577,6 +691,7 @@ export type Database = {
       documents: {
         Row: {
           ai_model: string | null
+          attempt_count: number
           classification_confidence: string | null
           created_at: string
           deal_id: string
@@ -585,10 +700,12 @@ export type Database = {
           id: string
           mime_type: string | null
           name: string
+          next_attempt_at: string | null
           notes: string | null
           preview_path: string | null
           processed_at: string | null
           processing_error: string | null
+          processing_started_at: string | null
           processing_status: string
           status: Database["public"]["Enums"]["document_status"]
           storage_path: string | null
@@ -598,6 +715,7 @@ export type Database = {
         }
         Insert: {
           ai_model?: string | null
+          attempt_count?: number
           classification_confidence?: string | null
           created_at?: string
           deal_id: string
@@ -606,10 +724,12 @@ export type Database = {
           id?: string
           mime_type?: string | null
           name: string
+          next_attempt_at?: string | null
           notes?: string | null
           preview_path?: string | null
           processed_at?: string | null
           processing_error?: string | null
+          processing_started_at?: string | null
           processing_status?: string
           status?: Database["public"]["Enums"]["document_status"]
           storage_path?: string | null
@@ -619,6 +739,7 @@ export type Database = {
         }
         Update: {
           ai_model?: string | null
+          attempt_count?: number
           classification_confidence?: string | null
           created_at?: string
           deal_id?: string
@@ -627,10 +748,12 @@ export type Database = {
           id?: string
           mime_type?: string | null
           name?: string
+          next_attempt_at?: string | null
           notes?: string | null
           preview_path?: string | null
           processed_at?: string | null
           processing_error?: string | null
+          processing_started_at?: string | null
           processing_status?: string
           status?: Database["public"]["Enums"]["document_status"]
           storage_path?: string | null
@@ -727,6 +850,7 @@ export type Database = {
           auto_fill_document_id: string | null
           auto_filled_at: string | null
           benefit_cap_applied: boolean
+          calc_locked: boolean
           calc_method: string
           calculated_monthly_income: number | null
           contract_months: number | null
@@ -761,6 +885,7 @@ export type Database = {
           auto_fill_document_id?: string | null
           auto_filled_at?: string | null
           benefit_cap_applied?: boolean
+          calc_locked?: boolean
           calc_method?: string
           calculated_monthly_income?: number | null
           contract_months?: number | null
@@ -795,6 +920,7 @@ export type Database = {
           auto_fill_document_id?: string | null
           auto_filled_at?: string | null
           benefit_cap_applied?: boolean
+          calc_locked?: boolean
           calc_method?: string
           calculated_monthly_income?: number | null
           contract_months?: number | null
@@ -897,6 +1023,7 @@ export type Database = {
           email: string
           id: string
           is_active: boolean
+          language: string
           last_login: string | null
           name: string
           updated_at: string
@@ -909,6 +1036,7 @@ export type Database = {
           email: string
           id?: string
           is_active?: boolean
+          language?: string
           last_login?: string | null
           name: string
           updated_at?: string
@@ -921,6 +1049,7 @@ export type Database = {
           email?: string
           id?: string
           is_active?: boolean
+          language?: string
           last_login?: string | null
           name?: string
           updated_at?: string
@@ -1006,12 +1135,41 @@ export type Database = {
       }
     }
     Functions: {
+      admin_exists: {
+        Args: never
+        Returns: boolean
+      }
+      admin_move_deal: {
+        Args: {
+          _deal_id: string
+          _note?: string
+          _status: Database["public"]["Enums"]["deal_status"]
+        }
+        Returns: Database["public"]["Enums"]["deal_status"]
+      }
+      ai_calls_today: {
+        Args: {
+          _deal_id: string
+        }
+        Returns: number
+      }
+      app_preference_defaults: {
+        Args: never
+        Returns: Json
+      }
       approve_funding: {
         Args: {
           _deal_id: string
           _notes?: string
         }
         Returns: Database["public"]["Enums"]["deal_status"]
+      }
+      auth_set_banned: {
+        Args: {
+          _banned: boolean
+          _user_id: string
+        }
+        Returns: undefined
       }
       automation_enabled: {
         Args: {
@@ -1037,9 +1195,26 @@ export type Database = {
         }
         Returns: boolean
       }
+      clean_text: {
+        Args: {
+          _field: string
+          _max?: number
+          _multiline?: boolean
+          _v: string
+        }
+        Returns: string
+      }
+      cron_retry_documents: {
+        Args: never
+        Returns: undefined
+      }
       current_dealer_id: {
         Args: never
         Returns: string
+      }
+      dashboard_metrics: {
+        Args: never
+        Returns: Json
       }
       deal_checklist: {
         Args: {
@@ -1051,6 +1226,21 @@ export type Database = {
           item_key: string
           label: string
           open_request_id: string
+          required_count: number
+          satisfied: boolean
+        }[]
+      }
+      deal_checklist_items: {
+        Args: {
+          _deal_id: string
+        }
+        Returns: {
+          doc_types: Database["public"]["Enums"]["document_type"][]
+          document_count: number
+          item_key: string
+          label: string
+          open_request_id: string
+          required_count: number
           satisfied: boolean
         }[]
       }
@@ -1060,11 +1250,40 @@ export type Database = {
         }
         Returns: boolean
       }
+      deal_has_trade_in: {
+        Args: {
+          _make: string
+          _payoff: number
+          _value: number
+          _vin: string
+        }
+        Returns: boolean
+      }
       deal_income_verified: {
         Args: {
           _deal_id: string
         }
         Returns: boolean
+      }
+      deal_rereading: {
+        Args: {
+          _deal_id: string
+        }
+        Returns: boolean
+      }
+      deal_search_text: {
+        Args: {
+          _customer_id: string
+          _deal_number: string
+          _vehicle_id: string
+        }
+        Returns: string
+      }
+      deal_stage_rank: {
+        Args: {
+          _s: Database["public"]["Enums"]["deal_status"]
+        }
+        Returns: number
       }
       deal_status_label: {
         Args: {
@@ -1072,11 +1291,46 @@ export type Database = {
         }
         Returns: string
       }
+      decline_deal: {
+        Args: {
+          _deal_id: string
+          _dealer_message?: string
+          _reason: string
+        }
+        Returns: Database["public"]["Enums"]["deal_status"]
+      }
+      decline_deal_internal: {
+        Args: {
+          _actor: string
+          _deal_id: string
+          _dealer_message: string
+          _reason: string
+          _reason_code: string
+        }
+        Returns: Database["public"]["Enums"]["deal_status"]
+      }
       department_role: {
         Args: {
           _d: Database["public"]["Enums"]["department"]
         }
         Returns: Database["public"]["Enums"]["app_role"]
+      }
+      document_blocks: {
+        Args: {
+          _created_at: string
+          _processed_at: string
+          _processing_started_at: string
+          _processing_status: string
+        }
+        Returns: boolean
+      }
+      document_counts: {
+        Args: {
+          _processed_at: string
+          _processing_status: string
+          _status: Database["public"]["Enums"]["document_status"]
+        }
+        Returns: boolean
       }
       document_type_label: {
         Args: {
@@ -1088,12 +1342,24 @@ export type Database = {
         Args: never
         Returns: Json
       }
+      get_internal_secret: {
+        Args: {
+          _name: string
+        }
+        Returns: string
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
           _user_id: string
         }
         Returns: boolean
+      }
+      income_category: {
+        Args: {
+          _t: Database["public"]["Enums"]["income_source_type"]
+        }
+        Returns: string
       }
       is_staff: {
         Args: {
@@ -1137,22 +1403,49 @@ export type Database = {
         }
         Returns: undefined
       }
+      parse_number: {
+        Args: {
+          _field: string
+          _v: Json
+        }
+        Returns: number
+      }
+      pref_bool: {
+        Args: {
+          _default: boolean
+          _key: string
+        }
+        Returns: boolean
+      }
       pref_enabled: {
         Args: {
           _key: string
         }
         Returns: boolean
       }
+      queue_counts: {
+        Args: never
+        Returns: Json
+      }
       record_credit_decision: {
         Args: {
           _bureau?: Database["public"]["Enums"]["credit_bureau"]
+          _conditions?: Json
           _deal_id: string
+          _dealer_message?: string
           _decision: string
           _notes?: string
           _score?: number
           _tier?: Database["public"]["Enums"]["credit_tier"]
         }
         Returns: Database["public"]["Enums"]["deal_status"]
+      }
+      report_metrics: {
+        Args: {
+          _from: string
+          _to: string
+        }
+        Returns: Json
       }
       request_document: {
         Args: {
@@ -1168,6 +1461,45 @@ export type Database = {
         }
         Returns: number
       }
+      retry_document: {
+        Args: {
+          _document_id: string
+        }
+        Returns: boolean
+      }
+      search_fold: {
+        Args: {
+          _t: string
+        }
+        Returns: string
+      }
+      session_mfa_ok: {
+        Args: never
+        Returns: boolean
+      }
+      set_credit_condition: {
+        Args: {
+          _cleared: boolean
+          _condition_id: string
+          _deal_id: string
+        }
+        Returns: Json
+      }
+      set_user_access: {
+        Args: {
+          _dealer_id?: string
+          _role?: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: undefined
+      }
+      set_user_active: {
+        Args: {
+          _active: boolean
+          _user_id: string
+        }
+        Returns: undefined
+      }
       status_department: {
         Args: {
           _s: Database["public"]["Enums"]["deal_status"]
@@ -1179,6 +1511,10 @@ export type Database = {
           _payload: Json
         }
         Returns: string
+      }
+      sweep_documents: {
+        Args: never
+        Returns: Json
       }
       sync_document_requests: {
         Args: {

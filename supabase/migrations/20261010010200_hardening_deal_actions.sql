@@ -575,7 +575,7 @@ END $$;
 -- ---------------------------------------------------------------- back-fill: primary income source
 -- Old deals without a primary income source get one from the customer's employment details
 -- (routing is paused for this one-time fill so no old deal moves or notifies anyone).
-ALTER TABLE public.income_sources DISABLE TRIGGER income_sources_route;
+SELECT set_config('autoflow.hold_deal', 'all', true);
 
 UPDATE public.income_sources s SET is_primary = true
 WHERE s.id IN (
@@ -590,4 +590,4 @@ SELECT d.id, d.customer_id, 'salaried', coalesce(nullif(btrim(c.employer), ''), 
 FROM public.deals d JOIN public.customers c ON c.id = d.customer_id
 WHERE NOT EXISTS (SELECT 1 FROM public.income_sources s WHERE s.deal_id = d.id);
 
-ALTER TABLE public.income_sources ENABLE TRIGGER income_sources_route;
+SELECT set_config('autoflow.hold_deal', '', true);
