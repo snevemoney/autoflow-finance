@@ -15,22 +15,17 @@ import {
   DEFAULT_AUTOMATIONS, fundingItemsOf, useAppSettings, useSaveSettings, type Automations, type FundingChecklistItem,
 } from '@/hooks/use-autoflow';
 import { useAuth } from '@/contexts/AuthContext';
+import { QueryError } from '@/components/QueryError';
 import { DOCUMENT_TYPE_CONFIG, type DocumentType } from '@/types/deal';
+import { readPreferences } from '@/lib/preferences';
+import { draftToPreferences, toDraft, type Draft } from '@/lib/settings-draft';
+import { errorMessage } from '@/lib/rpc';
 import type { Json } from '@/integrations/supabase/types';
-
-type Prefs = Record<string, string | boolean>;
-
-const DEFAULT_PREFS: Prefs = {
-  company_name: 'AutoFlow', support_email: '', apr_min: '4.0', apr_max: '18.0', terms: '36, 48, 60, 72, 84',
-  notify_new: true, notify_status: true, notify_uploads: true, notify_stale: true, stale_days: '3',
-  min_score_auto: '720', min_score_review: '620', min_score_decline: '550', ltv_new: '120', ltv_used: '110',
-  approval_limit: '50000', manager_above: '75000',
-};
 
 const AUTOMATION_COPY: { key: keyof Automations; title: string; body: string }[] = [
   { key: 'auto_sort', title: 'Auto-sort documents', body: 'Sort every upload into its document type — from the file name when it is obvious, otherwise with one AI read.' },
-  { key: 'auto_fill_income', title: 'Auto-fill income', body: 'Read pay stubs and statements and fill the income calculator (MI, YTD, Lower of) with review flags. An analyst still verifies.' },
-  { key: 'auto_request_docs', title: 'Flag gaps & request from dealer', body: 'When a submission is missing a required document, ask the dealer for it in their portal automatically.' },
+  { key: 'auto_fill_income', title: 'Auto-fill income', body: 'Read pay stubs and statements and fill the income calculator (MI, YTD, Lower of) with review flags. A verifier still confirms.' },
+  { key: 'auto_request_docs', title: 'Flag gaps & request from dealer', body: 'When a file is missing a required document, ask the dealer for it in their portal automatically.' },
   { key: 'auto_route', title: 'Auto-route queues', body: 'Move deals to Credit, Income and Funding as soon as each step is complete — through to Funded.' },
 ];
 
@@ -39,20 +34,21 @@ const REQUIRABLE: DocumentType[] = ['credit_application', 'id_verification', 've
 export default function Settings() {
   const [params] = useSearchParams();
   const { isAdmin } = useAuth();
-  const { data: settings, isLoading } = useAppSettings();
+  const settingsQ = useAppSettings();
+  const settings = settingsQ.data;
   const save = useSaveSettings();
 
   const [automations, setAutomations] = useState<Automations>(DEFAULT_AUTOMATIONS);
   const [required, setRequired] = useState<DocumentType[]>([]);
   const [fundingItems, setFundingItems] = useState<FundingChecklistItem[]>([]);
-  const [prefs, setPrefs] = useState<Prefs>(DEFAULT_PREFS);
+  const [draft, setDraft] = useState<Draft>(toDraft(readPreferences({})));
 
   useEffect(() => {
     if (!settings) return;
     setAutomations({ ...DEFAULT_AUTOMATIONS, ...(settings.automations as Partial<Automations>) });
     setRequired(settings.required_documents as DocumentType[]);
     setFundingItems(fundingItemsOf(settings));
-    setPrefs({ ...DEFAULT_PREFS, ...((settings.preferences ?? {}) as Prefs) });
+    setDraft(toDraft(readPreferences(settings.preferences)));
   }, [settings]);
 
   const persist = async (patch: Parameters<typeof save.mutateAsync>[0], label = 'Settings saved') => {
@@ -60,7 +56,7 @@ export default function Settings() {
       await save.mutateAsync(patch);
       toast({ title: label });
     } catch (e) {
-      toast({ title: 'Could not save', description: e instanceof Error ? e.message : String((e as { message?: string })?.message ?? e), variant: 'destructive' });
+      toast({ title: 'Could not save', description: errorMessage(e), variant: 'destructive' });
     }
   };
 
@@ -70,50 +66,69 @@ export default function Settings() {
     persist({ automations: next as unknown as Json }, `${AUTOMATION_COPY.find((a) => a.key === key)?.title} ${value ? 'on' : 'off'}`);
   };
 
-  const savePrefs = () => persist({ preferences: prefs as unknown as Json });
-  const p = (k: string) => String(prefs[k] ?? '');
-  const setP = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setPrefs((s) => ({ ...s, [k]: e.target.value }));
-  const bool = (k: string) => prefs[k] === true;
+  const savePrefs = (label?: string) => {
+    const { prefs, error } = draftToPreferences(draft, (settings?.preferences ?? {}) as Record<string, unknown>);
+    if (error) { toast({ title: 'Please check the settings', description: error, variant: 'destructive' }); return; }
+    persist({ preferences: prefs as unknown as Json }, label);
+  };
+  const t = (k: string) => String(draft[k] ?? '');
+  const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement>) => setDraft((s) => ({ ...s, [k]: e.target.value }));
+  const flag = (k: string) => draft[k] === true;
+  const setFlag = (k: string) => (v: boolean) => setDraft((s) => ({ ...s, [k]: v }));
 
-  const SaveButton = ({ onClick, label = 'Save Changes' }: { onClick: () => void; label?: string }) => (
+  const numField = (k: string, label: string, opts: { suffix?: string; hint?: string; width?: string } = {}) => (
+    <div className="space-y-1.5">
+      <Label htmlFor={`set-${k}`}>{label}</Label>
+      <div className="flex items-center gap-2">
+        <Input id={`set-${k}`} inputMode="decimal" value={t(k)} onChange={set(k)} disabled={!isAdmin} className={opts.width ?? 'w-32'} />
+        {opts.suffix && <span className="text-sm text-muted-foreground">{opts.suffix}</span>}
+      </div>
+      {opts.hint && <p className="text-xs text-muted-foreground">{opts.hint}</p>}
+    </div>
+  );
+
+  const SaveButton = ({ onClick, label = 'Save changes' }: { onClick: () => void; label?: string }) => (
     <Button onClick={onClick} disabled={!isAdmin || save.isPending}>
-      {save.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
+      {save.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" aria-hidden /> : <Save className="h-4 w-4 mr-2" aria-hidden />}
       {label}
     </Button>
   );
 
   return (
     <div className="flex flex-col h-full">
-      <AppHeader title="Settings" subtitle="Automations, requirements and preferences" />
+      <AppHeader title="Settings" subtitle="Automations, requirements and rules" />
 
-      <div className="flex-1 overflow-y-auto p-6 scrollbar-thin">
+      <div className="flex-1 overflow-y-auto p-4 md:p-6 scrollbar-thin">
         {!isAdmin && (
           <div className="mb-4 flex items-center gap-2 rounded-lg border p-3 text-sm text-muted-foreground">
-            <Lock className="h-4 w-4" /> Only admins can change settings.
+            <Lock className="h-4 w-4" aria-hidden /> Only admins can change settings.
           </div>
         )}
+        {settingsQ.isError ? (
+          <QueryError what="the settings" error={settingsQ.error} onRetry={() => settingsQ.refetch()} retrying={settingsQ.isFetching} />
+        ) : (
         <Tabs defaultValue={params.get('tab') ?? 'automations'} className="space-y-6">
           <TabsList className="flex-wrap h-auto">
-            <TabsTrigger value="automations"><Sparkles className="h-4 w-4 mr-2" />Automations</TabsTrigger>
-            <TabsTrigger value="general"><Sliders className="h-4 w-4 mr-2" />General</TabsTrigger>
-            <TabsTrigger value="notifications"><Bell className="h-4 w-4 mr-2" />Notifications</TabsTrigger>
-            <TabsTrigger value="rules"><Shield className="h-4 w-4 mr-2" />Business Rules</TabsTrigger>
+            <TabsTrigger value="automations"><Sparkles className="h-4 w-4 mr-2" aria-hidden />Automations</TabsTrigger>
+            <TabsTrigger value="general"><Sliders className="h-4 w-4 mr-2" aria-hidden />Deals &amp; portal</TabsTrigger>
+            <TabsTrigger value="notifications"><Bell className="h-4 w-4 mr-2" aria-hidden />Notifications</TabsTrigger>
+            <TabsTrigger value="rules"><Shield className="h-4 w-4 mr-2" aria-hidden />Rules &amp; security</TabsTrigger>
           </TabsList>
 
           <TabsContent value="automations" className="space-y-6">
             <Card>
               <CardHeader>
                 <CardTitle>AI automations</CardTitle>
-                <CardDescription>From the dealer's submission to funding. Changes apply immediately.</CardDescription>
+                <CardDescription>From the dealer's submission to funding. Changes apply immediately; switching one back on re-checks every open deal.</CardDescription>
               </CardHeader>
               <CardContent className="divide-y">
-                {isLoading ? <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /> : AUTOMATION_COPY.map((a) => (
+                {settingsQ.isLoading ? <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" aria-label="Loading" /> : AUTOMATION_COPY.map((a) => (
                   <div key={a.key} className="flex items-start justify-between gap-6 py-4 first:pt-0 last:pb-0">
                     <div>
-                      <p className="font-medium">{a.title}</p>
+                      <p className="font-medium" id={`auto-${a.key}`}>{a.title}</p>
                       <p className="text-sm text-muted-foreground max-w-2xl">{a.body}</p>
                     </div>
-                    <Switch checked={automations[a.key]} onCheckedChange={(v) => toggleAutomation(a.key, v)} disabled={!isAdmin} aria-label={a.title} />
+                    <Switch checked={automations[a.key]} onCheckedChange={(v) => toggleAutomation(a.key, v)} disabled={!isAdmin} aria-labelledby={`auto-${a.key}`} />
                   </div>
                 ))}
               </CardContent>
@@ -123,17 +138,17 @@ export default function Settings() {
               <CardHeader>
                 <CardTitle>Required documents</CardTitle>
                 <CardDescription>
-                  Every deal needs these before credit review. Proof of income is added automatically from the
-                  applicant's income type (pay stub, bank statements for self-employed, benefit letter for pensions).
+                  Every deal needs these before credit review. Proof of income is added automatically from each income source
+                  (pay stubs, bank statements for self-employed, a benefit letter for pensions), and trade-in documents when there is a trade-in.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {REQUIRABLE.map((t) => (
-                    <label key={t} className="flex items-center gap-2 text-sm cursor-pointer">
-                      <Checkbox checked={required.includes(t)} disabled={!isAdmin}
-                        onCheckedChange={(v) => setRequired((r) => (v === true ? [...r, t] : r.filter((x) => x !== t)))} />
-                      {DOCUMENT_TYPE_CONFIG[t].label}
+                  {REQUIRABLE.map((dt) => (
+                    <label key={dt} className="flex items-center gap-2 text-sm cursor-pointer">
+                      <Checkbox checked={required.includes(dt)} disabled={!isAdmin}
+                        onCheckedChange={(v) => setRequired((r) => (v === true ? [...r, dt] : r.filter((x) => x !== dt)))} />
+                      {DOCUMENT_TYPE_CONFIG[dt].label}
                     </label>
                   ))}
                 </div>
@@ -149,16 +164,16 @@ export default function Settings() {
               <CardContent className="space-y-3">
                 {fundingItems.map((item, i) => (
                   <div key={item.key} className="flex items-center gap-2">
-                    <Input value={item.label} disabled={!isAdmin}
+                    <Input value={item.label} disabled={!isAdmin} aria-label={`Checklist item ${i + 1}`}
                       onChange={(e) => setFundingItems((s) => s.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)))} />
-                    <Button variant="ghost" size="icon" disabled={!isAdmin} aria-label="Remove item"
-                      onClick={() => setFundingItems((s) => s.filter((_, j) => j !== i))}><Trash2 className="h-4 w-4" /></Button>
+                    <Button variant="ghost" size="icon" disabled={!isAdmin} aria-label={`Remove “${item.label}”`}
+                      onClick={() => setFundingItems((s) => s.filter((_, j) => j !== i))}><Trash2 className="h-4 w-4" aria-hidden /></Button>
                   </div>
                 ))}
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <Button variant="outline" disabled={!isAdmin}
                     onClick={() => setFundingItems((s) => [...s, { key: `item_${Date.now().toString(36)}`, label: 'New item' }])}>
-                    <Plus className="h-4 w-4 mr-2" /> Add item
+                    <Plus className="h-4 w-4 mr-2" aria-hidden /> Add item
                   </Button>
                   <SaveButton onClick={() => persist({ funding_checklist_items: fundingItems.filter((i) => i.label.trim()) as unknown as Json }, 'Funding checklist saved')} label="Save checklist" />
                 </div>
@@ -168,13 +183,11 @@ export default function Settings() {
             <Card>
               <CardHeader>
                 <CardTitle>AI service</CardTitle>
-                <CardDescription>All AI runs through one OpenRouter key, kept on the server in Supabase (an edge-function secret or the encrypted Vault), never in the browser.</CardDescription>
+                <CardDescription>All AI runs through one OpenRouter key kept on the server (Supabase secrets or the encrypted Vault), never in the browser.</CardDescription>
               </CardHeader>
               <CardContent className="text-sm text-muted-foreground space-y-2">
-                <p><span className="font-mono text-foreground">OPENROUTER_API_KEY</span> — required.</p>
-                <p><span className="font-mono text-foreground">AI_MODELS</span> — model chain, tried in order (free models first).</p>
-                <p><span className="font-mono text-foreground">AI_ESCALATION_MODELS</span> — re-reads documents the first pass was unsure about.</p>
-                <p><span className="font-mono text-foreground">AI_DATA_COLLECTION=deny</span> — only use providers that don't keep data (recommended for live borrower files).</p>
+                <p>Borrower documents only go to providers that don't keep or train on them (zero data retention). Each deal is limited to a daily number of AI reads.</p>
+                <p>Documents that can't be read automatically are retried by AutoFlow; staff can always sort and enter figures by hand.</p>
               </CardContent>
             </Card>
           </TabsContent>
@@ -182,25 +195,37 @@ export default function Settings() {
           <TabsContent value="general">
             <Card>
               <CardHeader>
-                <CardTitle>General Settings</CardTitle>
-                <CardDescription>Basic preferences</CardDescription>
+                <CardTitle>Deals &amp; dealer portal</CardTitle>
+                <CardDescription>What dealers see and what the deal form allows. The server checks the same limits.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-2"><Label>Company Name</Label><Input value={p('company_name')} onChange={setP('company_name')} disabled={!isAdmin} /></div>
-                  <div className="space-y-2"><Label>Support Email</Label><Input type="email" value={p('support_email')} onChange={setP('support_email')} disabled={!isAdmin} /></div>
-                  <div className="space-y-2">
-                    <Label>Default APR Range</Label>
-                    <div className="flex items-center gap-2">
-                      <Input inputMode="decimal" value={p('apr_min')} onChange={setP('apr_min')} className="w-24" disabled={!isAdmin} />
+                  <div className="space-y-1.5">
+                    <Label htmlFor="set-company_name">Company name</Label>
+                    <Input id="set-company_name" value={t('company_name')} onChange={set('company_name')} disabled={!isAdmin} />
+                    <p className="text-xs text-muted-foreground">Shown in the dealer portal and in emails.</p>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="set-support_email">Support email</Label>
+                    <Input id="set-support_email" type="email" value={t('support_email')} onChange={set('support_email')} disabled={!isAdmin} />
+                    <p className="text-xs text-muted-foreground">Shown to dealers as “Questions? …”.</p>
+                  </div>
+                  <div className="space-y-1.5">
+                    <span className="text-sm font-medium" id="apr-range">APR range</span>
+                    <div className="flex items-center gap-2" role="group" aria-labelledby="apr-range">
+                      <Input inputMode="decimal" value={t('min_apr')} onChange={set('min_apr')} className="w-24" disabled={!isAdmin} aria-label="Lowest APR" />
                       <span>to</span>
-                      <Input inputMode="decimal" value={p('apr_max')} onChange={setP('apr_max')} className="w-24" disabled={!isAdmin} />
+                      <Input inputMode="decimal" value={t('max_apr')} onChange={set('max_apr')} className="w-24" disabled={!isAdmin} aria-label="Highest APR" />
                       <span>%</span>
                     </div>
                   </div>
-                  <div className="space-y-2"><Label>Default Term Options</Label><Input value={p('terms')} onChange={setP('terms')} disabled={!isAdmin} /></div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="set-allowed_terms">Allowed terms (months)</Label>
+                    <Input id="set-allowed_terms" value={t('allowed_terms')} onChange={set('allowed_terms')} disabled={!isAdmin} />
+                  </div>
+                  {numField('default_term_months', 'Default term', { suffix: 'months' })}
                 </div>
-                <SaveButton onClick={savePrefs} />
+                <SaveButton onClick={() => savePrefs()} />
               </CardContent>
             </Card>
           </TabsContent>
@@ -208,28 +233,28 @@ export default function Settings() {
           <TabsContent value="notifications">
             <Card>
               <CardHeader>
-                <CardTitle>Notification Preferences</CardTitle>
-                <CardDescription>Staff notifications (dealers are always told about requests and status changes)</CardDescription>
+                <CardTitle>Staff notifications</CardTitle>
+                <CardDescription>Dealers are always told about document requests and status changes.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
                 {[
-                  ['notify_new', 'New Deal Submissions', 'Notify admins when a dealer submits a deal'],
-                  ['notify_status', 'Deal Status Changes', 'Notify the next department when a deal reaches its queue'],
-                  ['notify_uploads', 'Document Uploads', 'Notify staff when a dealer answers a document request'],
+                  ['notify_new', 'New deals', 'Tell admins when a dealer submits a deal'],
+                  ['notify_status', 'Deals reaching a queue', 'Tell the next department when a deal reaches it'],
+                  ['notify_uploads', 'Dealer answers', 'Tell staff when a dealer sends a requested document'],
                 ].map(([k, title, body]) => (
-                  <div key={k} className="flex items-center justify-between">
-                    <div><p className="font-medium">{title}</p><p className="text-sm text-muted-foreground">{body}</p></div>
-                    <Switch checked={bool(k)} onCheckedChange={(v) => setPrefs((s) => ({ ...s, [k]: v }))} disabled={!isAdmin} />
+                  <div key={k} className="flex items-center justify-between gap-4">
+                    <div><p className="font-medium" id={`n-${k}`}>{title}</p><p className="text-sm text-muted-foreground">{body}</p></div>
+                    <Switch checked={flag(k)} onCheckedChange={setFlag(k)} disabled={!isAdmin} aria-labelledby={`n-${k}`} />
                   </div>
                 ))}
-                <div className="space-y-2">
-                  <Label>Flag deals stuck in a stage after</Label>
-                  <Select value={p('stale_days')} onValueChange={(v) => setPrefs((s) => ({ ...s, stale_days: v }))} disabled={!isAdmin}>
-                    <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
-                    <SelectContent>{['1', '2', '3', '5', '7'].map((d) => <SelectItem key={d} value={d}>{d} days</SelectItem>)}</SelectContent>
+                <div className="space-y-1.5">
+                  <Label htmlFor="set-stale_days">Flag deals stuck in a stage after</Label>
+                  <Select value={t('stale_days')} onValueChange={(v) => setDraft((s) => ({ ...s, stale_days: v }))} disabled={!isAdmin}>
+                    <SelectTrigger id="set-stale_days" className="w-32"><SelectValue /></SelectTrigger>
+                    <SelectContent>{['1', '2', '3', '5', '7', '14'].map((d) => <SelectItem key={d} value={d}>{d} days</SelectItem>)}</SelectContent>
                   </Select>
                 </div>
-                <SaveButton onClick={savePrefs} label="Save Preferences" />
+                <SaveButton onClick={() => savePrefs('Notifications saved')} label="Save notifications" />
               </CardContent>
             </Card>
           </TabsContent>
@@ -237,37 +262,45 @@ export default function Settings() {
           <TabsContent value="rules">
             <Card>
               <CardHeader>
-                <CardTitle>Business Rules</CardTitle>
-                <CardDescription>Guidelines shown to analysts during credit and funding review</CardDescription>
+                <CardTitle>Underwriting rules</CardTitle>
+                <CardDescription>Guidelines shown to analysts and the funding team, and the policy AutoFlow applies.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
-                <div className="space-y-4">
-                  <h3 className="font-semibold">Credit Score Thresholds</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div className="space-y-2"><Label>Fast-track at or above</Label><Input inputMode="numeric" value={p('min_score_auto')} onChange={setP('min_score_auto')} disabled={!isAdmin} /></div>
-                    <div className="space-y-2"><Label>Manual review below</Label><Input inputMode="numeric" value={p('min_score_review')} onChange={setP('min_score_review')} disabled={!isAdmin} /></div>
-                    <div className="space-y-2"><Label>Decline below</Label><Input inputMode="numeric" value={p('min_score_decline')} onChange={setP('min_score_decline')} disabled={!isAdmin} /></div>
-                  </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                  {numField('max_dti', 'Maximum debt-to-income', { suffix: '%' })}
+                  {numField('max_pti', 'Maximum payment-to-income', { suffix: '%' })}
+                  {numField('funding_approval_limit', 'Warn when funding above', { suffix: '$', width: 'w-36', hint: 'Leave empty for no warning.' })}
                 </div>
-                <div className="space-y-4">
-                  <h3 className="font-semibold">LTV Limits (%)</h3>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2"><Label>New vehicles</Label><Input inputMode="numeric" value={p('ltv_new')} onChange={setP('ltv_new')} disabled={!isAdmin} /></div>
-                    <div className="space-y-2"><Label>Used vehicles</Label><Input inputMode="numeric" value={p('ltv_used')} onChange={setP('ltv_used')} disabled={!isAdmin} /></div>
-                  </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  {numField('min_score_auto', 'Fast-track at or above')}
+                  {numField('min_score_review', 'Manual review below')}
+                  {numField('min_score_decline', 'Decline below')}
                 </div>
-                <div className="space-y-4">
-                  <h3 className="font-semibold">Approval Tiers ($)</h3>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2"><Label>Standard Approval Limit</Label><Input inputMode="numeric" value={p('approval_limit')} onChange={setP('approval_limit')} disabled={!isAdmin} /></div>
-                    <div className="space-y-2"><Label>Manager Approval Required Above</Label><Input inputMode="numeric" value={p('manager_above')} onChange={setP('manager_above')} disabled={!isAdmin} /></div>
-                  </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  {numField('ltv_new', 'LTV limit, new', { suffix: '%' })}
+                  {numField('ltv_used', 'LTV limit, used', { suffix: '%' })}
+                  {numField('manager_above', 'Manager approval above', { suffix: '$', width: 'w-36' })}
                 </div>
-                <SaveButton onClick={savePrefs} label="Save Rules" />
+                <div className="flex items-start justify-between gap-4 rounded-lg border p-3">
+                  <div>
+                    <p className="font-medium" id="r-vfw">Decline vehicles used for work</p>
+                    <p className="text-sm text-muted-foreground">Rideshare or commercial use is declined automatically when an income source says so.</p>
+                  </div>
+                  <Switch checked={flag('decline_vehicle_for_work')} onCheckedChange={setFlag('decline_vehicle_for_work')} disabled={!isAdmin} aria-labelledby="r-vfw" />
+                </div>
+                <div className="flex items-start justify-between gap-4 rounded-lg border p-3">
+                  <div>
+                    <p className="font-medium" id="r-mfa">Require two-step sign-in for staff</p>
+                    <p className="text-sm text-muted-foreground">Staff must confirm a code from an authenticator app to see borrower files.</p>
+                  </div>
+                  <Switch checked={flag('require_staff_mfa')} onCheckedChange={setFlag('require_staff_mfa')} disabled aria-labelledby="r-mfa" />
+                </div>
+                <SaveButton onClick={() => savePrefs('Rules saved')} label="Save rules" />
               </CardContent>
             </Card>
           </TabsContent>
         </Tabs>
+        )}
       </div>
     </div>
   );

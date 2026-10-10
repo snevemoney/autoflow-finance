@@ -1423,6 +1423,10 @@ export type Database = {
         }
         Returns: boolean
       }
+      public_settings: {
+        Args: never
+        Returns: Json
+      }
       queue_counts: {
         Args: never
         Returns: Json

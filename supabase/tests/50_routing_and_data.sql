@@ -306,3 +306,9 @@ SELECT pg_temp.check(:'swept' AND (SELECT processing_status = 'failed' AND next_
                      'the sweep turns a read that died into a retry');
 SELECT pg_temp.check((SELECT count(*) > 0 FROM public.document_requests WHERE deal_id = :'dr' AND status = 'open'),
                      'the sweep re-checks deals so missing documents get requested');
+
+-- ---------------------------------------------------------------- settings a dealer may read
+SELECT pg_temp.check((pg_temp.run_as(:'d1', 'SELECT public.public_settings()::text')::jsonb ->> 'max_apr') = '19.99'
+                     AND NOT (pg_temp.run_as(:'d1', 'SELECT public.public_settings()::text')::jsonb ? 'funding_approval_limit')
+                     AND pg_temp.run_as(:'d1', 'SELECT count(*)::text FROM public.app_settings') = '0',
+                     'dealers read only the public settings (rate range, terms, contact), not the lender''s rules');
