@@ -1,24 +1,28 @@
-import { useLocation } from "react-router-dom";
-import { useEffect } from "react";
+import { Link, useLocation } from 'react-router-dom';
+import { Compass } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { AuthCard, AuthIcon } from '@/components/auth/AuthCard';
+import { useAuth } from '@/contexts/AuthContext';
 
-const NotFound = () => {
-  const location = useLocation();
-
-  useEffect(() => {
-    console.error("404 Error: User attempted to access non-existent route:", location.pathname);
-  }, [location.pathname]);
+export default function NotFound() {
+  const { pathname } = useLocation();
+  const { session, isDealer } = useAuth();
+  const home = !session ? { to: '/auth', label: 'Go to sign in' } : isDealer ? { to: '/portal', label: 'Go to my deals' } : { to: '/', label: 'Go to dashboard' };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-muted">
-      <div className="text-center">
-        <h1 className="mb-4 text-4xl font-bold">404</h1>
-        <p className="mb-4 text-xl text-muted-foreground">Oops! Page not found</p>
-        <a href="/" className="text-primary underline hover:text-primary/90">
-          Return to Home
-        </a>
-      </div>
-    </div>
+    <AuthCard
+      title="Page not found"
+      icon={<AuthIcon><Compass /></AuthIcon>}
+      description={
+        <>
+          There’s no page at <code className="break-all rounded bg-muted px-1 py-0.5 text-xs text-foreground">{pathname}</code>.
+          {' '}The link may be old or mistyped.
+        </>
+      }
+    >
+      <Button asChild className="w-full">
+        <Link to={home.to}>{home.label}</Link>
+      </Button>
+    </AuthCard>
   );
-};
-
-export default NotFound;
+}
