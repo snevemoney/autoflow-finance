@@ -1,18 +1,19 @@
-import { DealStatus, DEAL_STATUS_CONFIG } from '@/types/deal';
+import { statusConfig } from '@/types/deal';
 import { cn } from '@/lib/utils';
 
 interface StatusBadgeProps {
-  status: DealStatus;
+  /** any status string — unknown values get a neutral badge instead of crashing */
+  status: string;
   size?: 'sm' | 'md' | 'lg';
 }
 
 export function StatusBadge({ status, size = 'md' }: StatusBadgeProps) {
-  const config = DEAL_STATUS_CONFIG[status];
+  const config = statusConfig(status);
 
   return (
     <span
       className={cn(
-        'status-badge',
+        'status-badge whitespace-nowrap',
         config.bgColor,
         config.color,
         size === 'sm' && 'text-xs px-2 py-0.5',

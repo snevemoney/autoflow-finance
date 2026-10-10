@@ -53,6 +53,11 @@ export interface Document {
   mimeType?: string | null;
   processingStatus?: ProcessingStatus;
   processingError?: string | null;
+  /** when the server started reading it (contract: processing_started_at) */
+  processingStartedAt?: string | null;
+  attemptCount?: number;
+  /** auth user id of the uploader (owner check for Retry) */
+  uploadedById?: string | null;
   typeSource?: TypeSource;
   classificationConfidence?: string | null;
   aiModel?: string | null;
@@ -83,7 +88,6 @@ export interface Customer {
   lastName: string;
   email: string;
   phone: string;
-  ssn?: string;
   dateOfBirth?: string;
   address: {
     street: string;
@@ -140,6 +144,13 @@ export interface CreditInfo {
   tier: 'prime' | 'near_prime' | 'subprime' | 'deep_subprime';
 }
 
+export interface CreditCondition {
+  id: string;
+  label: string;
+  cleared_at: string | null;
+  cleared_by: string | null;
+}
+
 export interface Deal {
   id: string;
   dealNumber: string;
@@ -163,9 +174,13 @@ export interface Deal {
   notes: DealNote[];
   timeline: TimelineEvent[];
   
+  /** internal (staff) note from before decisions moved to the staff history — never shown to dealers */
   decisionNotes?: string;
   decisionBy?: string;
   decisionAt?: string;
+  /** the only decision text a dealer ever sees */
+  dealerMessage?: string;
+  creditConditions: CreditCondition[];
   
   fundedAt?: string;
   fundedAmount?: number;
@@ -184,6 +199,12 @@ export interface Deal {
   
   flags: string[];
   ltv: number; // Loan-to-value ratio
+
+  /** list rows only: open document requests waiting on the dealer */
+  openRequests?: number;
+  /** list rows only (credit queue): debts and income used for the DTI / PTI snapshot */
+  debts?: { monthly_payment: number; debt_type: string; is_court_ordered: boolean }[];
+  incomeSources?: { calculated_monthly_income: number | null; stated_monthly_income: number }[];
 }
 
 export interface Dealer {
@@ -229,7 +250,9 @@ export interface Notification {
   createdAt: string;
 }
 
-export const DEAL_STATUS_CONFIG: Record<DealStatus, { label: string; color: string; bgColor: string }> = {
+export interface StatusConfig { label: string; color: string; bgColor: string }
+
+export const DEAL_STATUS_CONFIG: Record<DealStatus, StatusConfig> = {
   new_submission: { label: 'New Submission', color: 'text-info', bgColor: 'bg-info/10' },
   document_review: { label: 'Document Review', color: 'text-warning', bgColor: 'bg-warning/10' },
   credit_review: { label: 'Credit Review', color: 'text-warning', bgColor: 'bg-warning/10' },
@@ -240,6 +263,20 @@ export const DEAL_STATUS_CONFIG: Record<DealStatus, { label: string; color: stri
   declined: { label: 'Declined', color: 'text-destructive', bgColor: 'bg-destructive/10' },
   incomplete: { label: 'Incomplete', color: 'text-muted-foreground', bgColor: 'bg-muted' },
 };
+
+export const ALL_DEAL_STATUSES = Object.keys(DEAL_STATUS_CONFIG) as DealStatus[];
+
+export function isDealStatus(value: unknown): value is DealStatus {
+  return typeof value === 'string' && Object.prototype.hasOwnProperty.call(DEAL_STATUS_CONFIG, value);
+}
+
+/** Never crashes on a status this build doesn't know (e.g. one added on the server later). */
+export function statusConfig(status: string | null | undefined): StatusConfig {
+  if (isDealStatus(status)) return DEAL_STATUS_CONFIG[status];
+  const raw = String(status ?? '').trim();
+  const label = raw ? raw.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase()) : 'Unknown';
+  return { label, color: 'text-muted-foreground', bgColor: 'bg-muted' };
+}
 
 export const DOCUMENT_TYPE_CONFIG: Record<DocumentType, { label: string; icon: string }> = {
   credit_application: { label: 'Credit Application', icon: 'FileText' },

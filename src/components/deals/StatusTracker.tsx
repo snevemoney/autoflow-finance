@@ -1,11 +1,11 @@
 import { Check, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { DEAL_FLOW, DEAL_STATUS_CONFIG, type DealStatus } from '@/types/deal';
+import { DEAL_FLOW, DEAL_STATUS_CONFIG, statusConfig, type DealStatus } from '@/types/deal';
 
 /** Where a deal is in the flow from dealer submission to funded. */
-export function StatusTracker({ status, className }: { status: DealStatus; className?: string }) {
+export function StatusTracker({ status, className }: { status: DealStatus | string; className?: string }) {
   const declined = status === 'declined' || status === 'incomplete';
-  const current = DEAL_FLOW.indexOf(status);
+  const current = DEAL_FLOW.indexOf(status as DealStatus);
 
   return (
     <ol className={cn('flex items-center gap-1 overflow-x-auto scrollbar-thin', className)} aria-label="Deal progress">
@@ -33,7 +33,7 @@ export function StatusTracker({ status, className }: { status: DealStatus; class
       {declined && (
         <li className="flex items-center gap-1 shrink-0">
           <span className="flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium bg-destructive/10 text-destructive border border-destructive/20">
-            <X className="h-3 w-3" /> {DEAL_STATUS_CONFIG[status].label}
+            <X className="h-3 w-3" aria-hidden /> {statusConfig(status).label}
           </span>
         </li>
       )}
