@@ -1,6 +1,9 @@
 // Screenshot QA for AutoFlow with a mocked Supabase backend (no real data, no network).
-//   npm run build && npx vite preview --host 127.0.0.1 --port 4173 &
-//   node scripts/screens/shoot.mjs <outdir> [staff|dealer|pending] [path ...]   (H=<px> sets viewport height, W=<px> width)
+//   npm run build && node scripts/screens/serve.mjs 4174 &      (or: npx vite preview --host 127.0.0.1 --port 4174)
+//   PORT=4174 node scripts/screens/shoot.mjs <outdir> [staff|dealer|pending|credit|anon] [path ...]
+//   (H=<px> sets viewport height, W=<px> width, PORT the app port — default 4173)
+// A path may end with #step|step: click:<text>, button:<accessible name>, tab:<name>, key:<Key>, scroll:<px>, wait:<ms>.
+// Content-Security-Policy violations (when served by serve.mjs) are reported with the other console errors.
 import { createRequire } from 'node:module';
 import fs from 'node:fs';
 import * as F from './fixtures.mjs';
@@ -9,10 +12,12 @@ const { chromium } = require('playwright');
 
 const [outDir, persona = 'staff', ...paths] = process.argv.slice(2);
 fs.mkdirSync(outDir, { recursive: true });
-const APP = 'http://127.0.0.1:4173';
+const APP = `http://127.0.0.1:${process.env.PORT ?? 4173}`;
 // the project ref the built app talks to (from .env), so the mock intercepts the right host
 const REF = (fs.readFileSync(new URL('../../.env', import.meta.url), 'utf8').match(/VITE_SUPABASE_PROJECT_ID="?([a-z0-9]+)/) || [])[1];
-const who = persona === 'dealer' ? F.DEALER_USER : persona === 'pending' ? { id: 'u-new', email: 'f&i@lavalmotors.test', name: 'Sophie Bergeron' } : F.STAFF;
+const CREDIT = { id: 'u-credit', email: 'a.dubois@autoflow.test', name: 'Alexandre Dubois' };
+const who = persona === 'dealer' ? F.DEALER_USER : persona === 'pending' ? { id: 'u-new', email: 'f&i@lavalmotors.test', name: 'Sophie Bergeron' }
+  : persona === 'credit' ? CREDIT : F.STAFF;
 
 const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
 const token = `${b64({ alg: 'HS256', typ: 'JWT' })}.${b64({ sub: who.id, role: 'authenticated', exp: 4102444800 })}.sig`;
@@ -23,6 +28,14 @@ const session = {
 
 const dealerId = persona === 'dealer' ? 'dl1' : null;
 const visibleDeals = () => (dealerId ? F.deals.filter((d) => d.dealer_id === dealerId) : F.deals);
+const queueCounts = () => {
+  const n = (s) => visibleDeals().filter((d) => d.status === s).length;
+  return {
+    new_submission: n('new_submission'), document_review: n('document_review'), credit_review: n('credit_review'),
+    income_verification: n('income_verification'), funding_review: n('funding_review'), approved: n('approved'),
+    open_requests: (dealerId ? F.requests.filter((r) => r.dealer_id === dealerId) : F.requests).filter((r) => r.status === 'open').length,
+  };
+};
 
 function filterRows(rows, params) {
   let out = rows;
@@ -73,7 +86,11 @@ function table(name, params) {
 
 const browser = await chromium.launch();
 const ctx = await browser.newContext({ viewport: { width: Number(process.env.W ?? 1440), height: Number(process.env.H ?? 900) }, deviceScaleFactor: 1 });
-await ctx.addInitScript(([key, s]) => { localStorage.setItem(key, s); }, [`sb-${REF}-auth-token`, JSON.stringify(session)]);
+if (persona !== 'anon') await ctx.addInitScript(([key, s]) => { localStorage.setItem(key, s); }, [`sb-${REF}-auth-token`, JSON.stringify(session)]);
+await ctx.addInitScript(() => {
+  window.__csp = [];
+  document.addEventListener('securitypolicyviolation', (e) => window.__csp.push(`${e.effectiveDirective} blocked ${e.blockedURI || '(inline)'} at ${e.sourceFile || ''}:${e.lineNumber || ''}`));
+});
 await ctx.route(new RegExp(`${REF}\\.supabase\\.co`), async (route) => {
   const req = route.request();
   const url = new URL(req.url());
@@ -84,6 +101,7 @@ await ctx.route(new RegExp(`${REF}\\.supabase\\.co`), async (route) => {
     const body = JSON.parse(req.postData() ?? '{}');
     return json(body._deal_id === F.D1.id ? F.checklistD1 : F.checklistD1.map((c) => ({ ...c, satisfied: true, open_request_id: null })));
   }
+  if (url.pathname.startsWith('/rest/v1/rpc/queue_counts')) return json(queueCounts());
   if (url.pathname.startsWith('/rest/v1/rpc/')) return json(null);
   if (url.pathname.startsWith('/storage/')) return json({ signedURL: '/x' });
   if (url.pathname.startsWith('/functions/')) return json({ accepted: [] }, 202);
@@ -109,6 +127,8 @@ for (const p of paths) {
   if (action) {
     for (const step of action.split('|')) {
       if (step.startsWith('click:')) await page.getByText(step.slice(6), { exact: false }).first().click();
+      if (step.startsWith('button:')) await page.getByRole('button', { name: step.slice(7) }).first().click();
+      if (step.startsWith('key:')) await page.keyboard.press(step.slice(4));
       if (step.startsWith('tab:')) await page.getByRole('tab', { name: step.slice(4) }).click();
       if (step.startsWith('scroll:')) await page.mouse.wheel(0, Number(step.slice(7)));
       if (step.startsWith('wait:')) await page.waitForTimeout(Number(step.slice(5)));
@@ -117,7 +137,9 @@ for (const p of paths) {
   }
   const name = (path.replace(/\//g, '_').replace(/[?=&]/g, '-') || '_root') + (action ? `__${action.replace(/[^a-z0-9]+/gi, '-')}` : '');
   await page.screenshot({ path: `${outDir}/${persona}${name}.png`, fullPage: true });
-  console.log('shot', persona, p, '→', page.url().replace(APP, ''));
+  console.log('shot', persona, p, '→', page.url().replace(APP, ''), '|', await page.title());
+  const csp = await page.evaluate(() => window.__csp.splice(0));
+  if (csp.length) errors.push(...csp.map((c) => `CSP ${p}: ${c}`));
 }
 if (errors.length) console.log('ERRORS:\n' + [...new Set(errors)].join('\n'));
 await browser.close();

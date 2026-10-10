@@ -62,6 +62,7 @@ function Shell({ kind }: { kind: 'staff' | 'dealer' }) {
               'w-72 max-w-[85vw] border-sidebar-border bg-sidebar p-0 text-sidebar-foreground md:hidden '
               // the sheet's own close button: line it up with the brand row, below the notch
               + '[&>button]:top-[calc(env(safe-area-inset-top)+1.5rem)] [&>button]:ring-offset-sidebar [&>button]:focus:ring-sidebar-ring'
+              + ' [&>button]:data-[state=open]:bg-transparent'
             }
           >
             <SheetTitle className="sr-only">Navigation</SheetTitle>
