@@ -16,15 +16,37 @@ CREATE TABLE IF NOT EXISTS auth.users (
   raw_user_meta_data jsonb DEFAULT '{}'::jsonb,
   created_at timestamptz DEFAULT now()
 );
+ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS banned_until timestamptz;
+-- signed-in sessions (GoTrue): refresh_tokens.user_id is a varchar there
+CREATE TABLE IF NOT EXISTS auth.sessions (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  created_at timestamptz DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS auth.refresh_tokens (
+  id bigserial PRIMARY KEY,
+  token text,
+  user_id varchar(255),
+  session_id uuid,
+  revoked boolean DEFAULT false
+);
 CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$
-  SELECT nullif(current_setting('request.jwt.claim.sub', true), '')::uuid
+  SELECT coalesce(nullif(current_setting('request.jwt.claim.sub', true), ''),
+                  nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub')::uuid
 $$;
 CREATE OR REPLACE FUNCTION auth.role() RETURNS text LANGUAGE sql STABLE AS $$
   SELECT coalesce(nullif(current_setting('request.jwt.claim.role', true), ''), 'anon')
 $$;
+-- the whole JWT (Supabase: auth.jwt()); tests put e.g. {"aal": "aal2"} in request.jwt.claims
+CREATE OR REPLACE FUNCTION auth.jwt() RETURNS jsonb LANGUAGE sql STABLE AS $$
+  SELECT coalesce(nullif(current_setting('request.jwt.claim', true), ''),
+                  nullif(current_setting('request.jwt.claims', true), ''))::jsonb
+$$;
 
 CREATE SCHEMA IF NOT EXISTS storage;
 CREATE TABLE IF NOT EXISTS storage.buckets (id text PRIMARY KEY, name text, public boolean DEFAULT false);
+ALTER TABLE storage.buckets ADD COLUMN IF NOT EXISTS file_size_limit bigint,
+                            ADD COLUMN IF NOT EXISTS allowed_mime_types text[];
 CREATE TABLE IF NOT EXISTS storage.objects (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   bucket_id text REFERENCES storage.buckets(id),
