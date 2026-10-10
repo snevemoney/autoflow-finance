@@ -7,32 +7,11 @@ async function assertRejects(fn: () => Promise<unknown>, cls: new (...a: never[]
   try { await fn(); } catch (e) { nodeAssert.ok(e instanceof cls, `expected ${cls.name}`); return e as Error; }
   throw new Error("expected promise to reject");
 }
-import { classifyByFilename, isUnsure, needsAi, normalizeReading, toAmount } from "./classify.ts";
+import { isUnsure, needsAi, normalizeReading, toAmount } from "./classify.ts";
 import { computeAutoFill, employersMatch, monthlyFromPeriod, pickSource, ytdMonthsAt } from "./income.ts";
 import { aiConfigFromEnv, AiError, callJson, clearAiConfigCache, DEFAULT_MODELS, loadAiConfig, modelBatches, parseJsonReply } from "./ai.ts";
 
-Deno.test("file names sort documents in English and French", () => {
-  const cases: [string, string | null][] = [
-    ["Talon de paie - juin.pdf", "pay_stub"],
-    ["paystub_2026-09-15.jpg", "pay_stub"],
-    ["relevé bancaire Desjardins.pdf", "bank_statement"],
-    ["Bank Statement Aug.pdf", "bank_statement"],
-    ["Permis de conduire recto.jpg", "id_verification"],
-    ["carte assurance maladie.jpg", "id_verification"],
-    ["Preuve d'assurance auto.pdf", "insurance"],
-    ["insurance_binder.pdf", "insurance"],
-    ["Facture véhicule RAV4.pdf", "vehicle_invoice"],
-    ["Bill_of_Sale.pdf", "vehicle_invoice"],
-    ["Demande de crédit signée.pdf", "credit_application"],
-    ["credit-app.pdf", "credit_application"],
-    ["Lettre d'emploi.pdf", "income_verification"],
-    ["Avis de cotisation 2025.pdf", "income_verification"],
-    ["trade-in payoff letter.pdf", "trade_in"],
-    ["IMG_4402.jpg", null],
-    ["scan0001.pdf", null],
-  ];
-  for (const [name, type] of cases) assertEquals(classifyByFilename(name), type, name);
-});
+// File-name sorting has its own table of cases in classify_test.ts.
 
 Deno.test("AI is only called when the name is not enough or there is income to read", () => {
   assert(needsAi("other", false));
