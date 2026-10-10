@@ -57,6 +57,20 @@ export function useApplicantDebts(dealId: string | undefined) {
   });
 }
 
+/** Update an income source (contract columns such as calc_locked aren't in the generated types yet). */
+export async function updateIncomeSource(id: string, patch: Record<string, unknown>) {
+  const { error } = await supabase.from('income_sources').update({ ...patch, updated_at: new Date().toISOString() } as never).eq('id', id);
+  if (error) throw error;
+}
+
+export async function addTimelineNote(dealId: string, description: string, metadata: Record<string, unknown>) {
+  const { data: { user } } = await supabase.auth.getUser();
+  const { error } = await supabase.from('deal_timeline').insert({
+    deal_id: dealId, type: 'note_added', description, created_by: user?.id ?? null, metadata: metadata as never,
+  });
+  if (error) console.warn('timeline note not saved', error.message);
+}
+
 /** Refresh everything income-related for a deal after an analyst action. */
 export function useRefreshIncome(dealId: string | undefined) {
   const qc = useQueryClient();

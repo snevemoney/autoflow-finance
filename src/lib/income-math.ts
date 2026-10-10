@@ -52,7 +52,7 @@ export const roundCents = (n: number) => Math.round((n + Number.EPSILON) * 100) 
 export function parseAmount(value: string | number | null | undefined): number {
   if (typeof value === 'number') return value;
   if (value == null) return NaN;
-  const cleaned = String(value).replace(/[\s$, ]/g, '');
+  const cleaned = String(value).replace(/[\s$,]/g, '');
   // Number() (not parseFloat) so "1.2.3" or "12abc" are rejected instead of read as 1.2 / 12
   return /^-?(\d+\.?\d*|\.\d+)$/.test(cleaned) ? Number(cleaned) : NaN;
 }

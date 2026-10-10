@@ -5,10 +5,13 @@ import { Badge } from '@/components/ui/badge';
 import { useChecklist, useDealRequests, useRequestDocument, useRequestMissing, useCancelRequest } from '@/hooks/use-autoflow';
 import { toast } from '@/hooks/use-toast';
 import { ago, cn } from '@/lib/utils';
+import { errorMessage } from '@/lib/rpc';
+import { QueryError } from '@/components/QueryError';
 
 /** What the deal still needs, what has been asked of the dealer, and one-click requests. */
 export function DealChecklistCard({ dealId, staff = true, documentsReading = false }: { dealId: string; staff?: boolean; documentsReading?: boolean }) {
-  const { data: items = [], isLoading } = useChecklist(dealId);
+  const checklist = useChecklist(dealId);
+  const { data: items = [], isLoading } = checklist;
   const { data: requests = [] } = useDealRequests(dealId);
   const requestOne = useRequestDocument(dealId);
   const requestAll = useRequestMissing(dealId);
@@ -24,7 +27,7 @@ export function DealChecklistCard({ dealId, staff = true, documentsReading = fal
       await requestOne.mutateAsync({ docType, message: 'Missing from submission' });
       toast({ title: 'Requested from dealer', description: label });
     } catch (e) {
-      toast({ title: 'Request failed', description: e instanceof Error ? e.message : String(e), variant: 'destructive' });
+      toast({ title: 'Request failed', description: errorMessage(e), variant: 'destructive' });
     }
   };
 
@@ -33,9 +36,18 @@ export function DealChecklistCard({ dealId, staff = true, documentsReading = fal
       const n = await requestAll.mutateAsync();
       toast({ title: n ? `Requested ${n} document${n === 1 ? '' : 's'} from the dealer` : 'Nothing new to request' });
     } catch (e) {
-      toast({ title: 'Request failed', description: e instanceof Error ? e.message : String(e), variant: 'destructive' });
+      toast({ title: 'Request failed', description: errorMessage(e), variant: 'destructive' });
     }
   };
+
+  if (checklist.isError) {
+    return (
+      <Card>
+        <CardHeader className="pb-3"><CardTitle className="flex items-center gap-2 text-base"><FileCheck2 className="h-5 w-5" aria-hidden /> Deal checklist</CardTitle></CardHeader>
+        <CardContent><QueryError compact what="the checklist" error={checklist.error} onRetry={() => checklist.refetch()} /></CardContent>
+      </Card>
+    );
+  }
 
   return (
     <Card>
@@ -106,7 +118,7 @@ export function DealChecklistCard({ dealId, staff = true, documentsReading = fal
                 <span className="flex-1 truncate">{r.label}{r.message && r.message !== 'Missing from submission' ? ` — ${r.message}` : ''}</span>
                 <span className="text-muted-foreground">{ago(r.created_at, { addSuffix: true })}</span>
                 {staff && (
-                  <Button variant="ghost" size="icon" className="h-6 w-6" aria-label="Cancel request" onClick={() => cancel.mutate(r.id)}>
+                  <Button variant="ghost" size="icon" className="h-6 w-6" aria-label={`Cancel the request for ${r.label}`} onClick={() => cancel.mutate(r.id)}>
                     <X className="h-3 w-3" />
                   </Button>
                 )}

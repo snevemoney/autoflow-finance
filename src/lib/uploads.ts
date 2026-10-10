@@ -56,7 +56,7 @@ export function friendlyUploadError(e: unknown): string {
 class UploadProblem extends Error {}
 
 function safeName(name: string): string {
-  const clean = name.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\w.-]+/g, '_');
+  const clean = name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\w.-]+/g, '_');
   return clean.slice(-120) || 'document';
 }
 

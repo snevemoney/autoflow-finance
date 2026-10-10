@@ -1,31 +1,14 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
+import { Link2, FileText, Loader2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import { Link2, FileText } from 'lucide-react';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
-import { toast } from 'sonner';
+import { toast } from '@/hooks/use-toast';
+import { updateIncomeSource, type ExtractedIncome } from '@/hooks/use-income';
+import { errorMessage } from '@/lib/rpc';
 import type { IncomeSource } from './IncomeSourceCard';
-
-interface ExtractedIncome {
-  id: string;
-  document_id: string;
-  gross_pay: number | null;
-  net_pay: number | null;
-  pay_frequency: string | null;
-  pay_date: string | null;
-  employer_name_on_doc: string | null;
-  ytd_gross: number | null;
-  confidence: string;
-  extracted_at: string;
-  income_source_id: string | null;
-}
 
 interface UnmatchedExtractionRowProps {
   extraction: ExtractedIncome;
@@ -33,69 +16,40 @@ interface UnmatchedExtractionRowProps {
   onLinked: () => void;
 }
 
-function calcMonthlyFromExtraction(grossPay: number, frequency: string): number {
-  switch (frequency) {
-    case 'weekly': return Math.round(grossPay * 4.33);
-    case 'biweekly': return Math.round(grossPay * 2.17);
-    case 'semimonthly': return Math.round(grossPay * 2);
-    case 'monthly': return grossPay;
-    default: return grossPay;
-  }
-}
+const sameEmployer = (a: string, b: string) => {
+  const x = a.toLowerCase().trim();
+  const y = b.toLowerCase().trim();
+  return !!x && !!y && (x.includes(y) || y.includes(x));
+};
 
+/**
+ * An analyst attaches a read pay document to an income source (explicit action). Linking only adds
+ * the evidence and review flags — the figures are applied from the calculator, which locks them.
+ */
 export function UnmatchedExtractionRow({ extraction, incomeSources, onLinked }: UnmatchedExtractionRowProps) {
-  const [selectedSourceId, setSelectedSourceId] = useState<string>('');
+  const ids = useId();
+  const [selectedSourceId, setSelectedSourceId] = useState('');
   const [linking, setLinking] = useState(false);
 
   const handleLink = async () => {
-    if (!selectedSourceId) return;
-    const source = incomeSources.find(s => s.id === selectedSourceId);
+    const source = incomeSources.find((s) => s.id === selectedSourceId);
     if (!source) return;
-
     setLinking(true);
     try {
-      // Link extraction to chosen source
-      const { error: linkError } = await supabase
-        .from('extracted_income_data')
-        .update({ income_source_id: selectedSourceId })
-        .eq('id', extraction.id);
-      if (linkError) throw linkError;
-
-      // Recalculate income and fraud flags
-      const calculatedMonthly = calcMonthlyFromExtraction(extraction.gross_pay!, extraction.pay_frequency!);
-      const flags = [...(source.flag_reasons || [])];
-
-      const variance = source.stated_monthly_income > 0
-        ? Math.abs((calculatedMonthly - source.stated_monthly_income) / source.stated_monthly_income) * 100
-        : 0;
-      if (variance > 15 && !flags.includes('Income variance > 15%')) {
-        flags.push('Income variance > 15%');
+      const { error } = await supabase.from('extracted_income_data').update({ income_source_id: source.id }).eq('id', extraction.id);
+      if (error) throw error;
+      const flags = [...(source.flag_reasons ?? [])];
+      if (extraction.employer_name_on_doc && !sameEmployer(extraction.employer_name_on_doc, source.employer_name) && !flags.includes('Employer name mismatch')) {
+        flags.push('Employer name mismatch');
       }
-      if (extraction.employer_name_on_doc) {
-        const docEmp = extraction.employer_name_on_doc.toLowerCase().trim();
-        const srcEmp = source.employer_name.toLowerCase().trim();
-        if (!docEmp.includes(srcEmp) && !srcEmp.includes(docEmp) && !flags.includes('Employer name mismatch')) {
-          flags.push('Employer name mismatch');
-        }
+      if (extraction.pay_date && (Date.now() - new Date(extraction.pay_date).getTime()) / 86_400_000 > 60 && !flags.includes('Document > 60 days old')) {
+        flags.push('Document > 60 days old');
       }
-      if (extraction.pay_date) {
-        const days = (Date.now() - new Date(extraction.pay_date).getTime()) / (1000 * 60 * 60 * 24);
-        if (days > 60 && !flags.includes('Document > 60 days old')) {
-          flags.push('Document > 60 days old');
-        }
-      }
-
-      const { error: updateError } = await supabase
-        .from('income_sources')
-        .update({ calculated_monthly_income: calculatedMonthly, flag_reasons: flags })
-        .eq('id', selectedSourceId);
-      if (updateError) throw updateError;
-
-      toast.success('Extraction linked to income source');
+      if (flags.length !== (source.flag_reasons ?? []).length) await updateIncomeSource(source.id, { flag_reasons: flags });
+      toast({ title: 'Document linked', description: 'Open the income calculator to apply its figures.' });
       onLinked();
     } catch (err) {
-      console.error(err);
-      toast.error('Failed to link extraction');
+      toast({ title: 'Could not link the document', description: errorMessage(err), variant: 'destructive' });
     } finally {
       setLinking(false);
     }
@@ -109,40 +63,22 @@ export function UnmatchedExtractionRow({ extraction, incomeSources, onLinked }: 
 
   return (
     <div className="flex flex-col gap-2 p-3 rounded-lg border border-dashed border-warning/40 bg-warning/5">
-      <div className="flex items-center gap-2 text-sm">
-        <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
-        <span className="font-medium truncate">
-          {extraction.employer_name_on_doc ?? 'Unknown employer'}
-        </span>
-        <span className="text-muted-foreground">
-          ${extraction.gross_pay?.toLocaleString()} / {extraction.pay_frequency ?? '?'}
-        </span>
-        <Badge variant="outline" className={`text-xs ${confidenceColor}`}>
-          {extraction.confidence}
-        </Badge>
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <FileText className="h-4 w-4 text-muted-foreground shrink-0" aria-hidden />
+        <span className="font-medium truncate">{extraction.employer_name_on_doc ?? 'Unknown employer'}</span>
+        <span className="text-muted-foreground">${extraction.gross_pay?.toLocaleString('en-CA')} / {extraction.pay_frequency ?? '?'}</span>
+        <Badge variant="outline" className={`text-xs ${confidenceColor}`}>{extraction.confidence}</Badge>
       </div>
       <div className="flex items-center gap-2">
+        <Label htmlFor={`${ids}-source`} className="sr-only">Income source for this document</Label>
         <Select value={selectedSourceId} onValueChange={setSelectedSourceId}>
-          <SelectTrigger className="h-8 text-xs flex-1">
-            <SelectValue placeholder="Select income source..." />
-          </SelectTrigger>
+          <SelectTrigger id={`${ids}-source`} className="h-8 text-xs flex-1"><SelectValue placeholder="Choose the income source…" /></SelectTrigger>
           <SelectContent>
-            {incomeSources.map(src => (
-              <SelectItem key={src.id} value={src.id}>
-                {src.employer_name} ({src.source_type})
-              </SelectItem>
-            ))}
+            {incomeSources.map((src) => <SelectItem key={src.id} value={src.id}>{src.employer_name} ({src.source_type.replace('_', ' ')})</SelectItem>)}
           </SelectContent>
         </Select>
-        <Button
-          size="sm"
-          variant="outline"
-          className="h-8 text-xs"
-          disabled={!selectedSourceId || linking}
-          onClick={handleLink}
-        >
-          <Link2 className="h-3 w-3 mr-1" />
-          {linking ? 'Linking...' : 'Link'}
+        <Button type="button" size="sm" variant="outline" className="h-8 text-xs" disabled={!selectedSourceId || linking} onClick={handleLink}>
+          {linking ? <Loader2 className="h-3 w-3 mr-1 animate-spin" aria-hidden /> : <Link2 className="h-3 w-3 mr-1" aria-hidden />} Link
         </Button>
       </div>
     </div>

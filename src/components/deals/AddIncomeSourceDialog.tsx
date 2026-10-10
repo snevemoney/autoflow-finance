@@ -8,6 +8,8 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { AlertTriangle } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
+import { errorMessage } from '@/lib/rpc';
+import { monthlyFromHourly, parseAmount } from '@/lib/income-math';
 import type { IncomeSourceType } from './IncomeSourceCard';
 
 const RIDESHARE_EMPLOYERS = [
@@ -61,42 +63,38 @@ export function AddIncomeSourceDialog({ open, onOpenChange, dealId, customerId, 
     if (!employerName || !statedIncome) return;
     setSaving(true);
 
-    const stated = parseFloat(statedIncome);
-    let calculated: number | null = null;
-
-    // Auto-calculate for hourly
-    if (sourceType === 'part_time' && hoursPerWeek && hourlyRate) {
-      calculated = Math.round(parseFloat(hoursPerWeek) * parseFloat(hourlyRate) * 4.33);
+    const stated = parseAmount(statedIncome);
+    if (!Number.isFinite(stated) || stated < 0) {
+      toast({ title: 'Enter the stated monthly income (0 or more)', variant: 'destructive' });
+      setSaving(false);
+      return;
     }
+    // hourly sources start from rate × hours × 52 / 12
+    const calculated = sourceType === 'part_time' ? monthlyFromHourly(parseAmount(hourlyRate), parseAmount(hoursPerWeek)) : null;
 
     // Fraud flags
     const flags: string[] = [];
     if (stated > 0 && stated % 1000 === 0) flags.push('Round number suspicion');
 
     try {
-      // Validate IDs are valid UUIDs for database insertion
-      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-      const validDealId = uuidRegex.test(dealId) ? dealId : crypto.randomUUID();
-      const validCustomerId = uuidRegex.test(customerId) ? customerId : crypto.randomUUID();
-
       const { error } = await supabase.from('income_sources').insert({
-        deal_id: validDealId,
-        customer_id: validCustomerId,
+        deal_id: dealId,
+        customer_id: customerId,
         source_type: sourceType,
         employer_name: employerName,
         job_title: jobTitle || null,
         stated_monthly_income: stated,
         calculated_monthly_income: calculated,
         pay_frequency: payFrequency,
-        contract_months: sourceType === 'education' ? parseInt(contractMonths) || null : null,
-        hours_per_week: sourceType === 'part_time' ? parseFloat(hoursPerWeek) || null : null,
-        hourly_rate: sourceType === 'part_time' ? parseFloat(hourlyRate) || null : null,
+        contract_months: sourceType === 'education' ? parseInt(contractMonths, 10) || null : null,
+        hours_per_week: sourceType === 'part_time' ? parseAmount(hoursPerWeek) || null : null,
+        hourly_rate: sourceType === 'part_time' ? parseAmount(hourlyRate) || null : null,
         is_primary: false,
         flag_reasons: vehicleForWork ? [...flags, 'Vehicle used for commercial/rideshare work'] : flags,
         vehicle_for_work: vehicleForWork,
         benefit_cap_applied: false,
         verification_status: vehicleForWork ? 'flagged' : (isBenefitType ? 'needs_review' : 'unverified'),
-      } as any);
+      });
 
       if (error) throw error;
       toast({ title: 'Income source added' });
@@ -108,8 +106,8 @@ export function AddIncomeSourceDialog({ open, onOpenChange, dealId, customerId, 
       setStatedIncome('');
       setHoursPerWeek('');
       setHourlyRate('');
-    } catch (err: any) {
-      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    } catch (err) {
+      toast({ title: 'Could not add the income source', description: errorMessage(err), variant: 'destructive' });
     } finally {
       setSaving(false);
     }
@@ -117,7 +115,7 @@ export function AddIncomeSourceDialog({ open, onOpenChange, dealId, customerId, 
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="w-[calc(100vw-1rem)] sm:max-w-md max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Add Income Source</DialogTitle>
           <DialogDescription>Add a new income source for this applicant.</DialogDescription>
@@ -125,9 +123,9 @@ export function AddIncomeSourceDialog({ open, onOpenChange, dealId, customerId, 
 
         <div className="space-y-4">
           <div className="space-y-2">
-            <Label>Income Type</Label>
+            <Label htmlFor="add-income-type">Income type</Label>
             <Select value={sourceType} onValueChange={(v) => setSourceType(v as IncomeSourceType)}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger id="add-income-type"><SelectValue /></SelectTrigger>
               <SelectContent>
                 {SOURCE_TYPES.map(t => (
                   <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
@@ -137,24 +135,24 @@ export function AddIncomeSourceDialog({ open, onOpenChange, dealId, customerId, 
           </div>
 
           <div className="space-y-2">
-            <Label>Employer / Business Name</Label>
-            <Input value={employerName} onChange={e => setEmployerName(e.target.value)} placeholder="e.g. Acme Corp" />
+            <Label htmlFor="add-income-employer">Employer / business name</Label>
+            <Input id="add-income-employer" value={employerName} onChange={e => setEmployerName(e.target.value)} placeholder="e.g. Acme Corp" />
           </div>
 
           <div className="space-y-2">
-            <Label>Job Title (optional)</Label>
-            <Input value={jobTitle} onChange={e => setJobTitle(e.target.value)} placeholder="e.g. Software Engineer" />
+            <Label htmlFor="add-income-title">Job title (optional)</Label>
+            <Input id="add-income-title" value={jobTitle} onChange={e => setJobTitle(e.target.value)} placeholder="e.g. Software Engineer" />
           </div>
 
           <div className="space-y-2">
-            <Label>Stated Monthly Income ($)</Label>
-            <Input type="number" value={statedIncome} onChange={e => setStatedIncome(e.target.value)} placeholder="5000" />
+            <Label htmlFor="add-income-stated">Stated monthly income ($)</Label>
+            <Input id="add-income-stated" inputMode="decimal" value={statedIncome} onChange={e => setStatedIncome(e.target.value)} placeholder="5000" />
           </div>
 
           <div className="space-y-2">
-            <Label>Pay Frequency</Label>
+            <Label htmlFor="add-income-frequency">Pay frequency</Label>
             <Select value={payFrequency} onValueChange={setPayFrequency}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger id="add-income-frequency"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="weekly">Weekly</SelectItem>
                 <SelectItem value="biweekly">Biweekly</SelectItem>
@@ -170,20 +168,20 @@ export function AddIncomeSourceDialog({ open, onOpenChange, dealId, customerId, 
           {sourceType === 'part_time' && (
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
-                <Label>Hours / Week</Label>
-                <Input type="number" value={hoursPerWeek} onChange={e => setHoursPerWeek(e.target.value)} placeholder="25" />
+                <Label htmlFor="add-income-hours">Hours per week</Label>
+                <Input id="add-income-hours" inputMode="decimal" value={hoursPerWeek} onChange={e => setHoursPerWeek(e.target.value)} placeholder="25" />
               </div>
               <div className="space-y-2">
-                <Label>Hourly Rate ($)</Label>
-                <Input type="number" value={hourlyRate} onChange={e => setHourlyRate(e.target.value)} placeholder="18" />
+                <Label htmlFor="add-income-rate">Hourly rate ($)</Label>
+                <Input id="add-income-rate" inputMode="decimal" value={hourlyRate} onChange={e => setHourlyRate(e.target.value)} placeholder="18" />
               </div>
             </div>
           )}
 
           {sourceType === 'education' && (
             <div className="space-y-2">
-              <Label>Contract Months (e.g. 10 for school year)</Label>
-              <Input type="number" value={contractMonths} onChange={e => setContractMonths(e.target.value)} placeholder="10" />
+              <Label htmlFor="add-income-contract">Contract months (e.g. 10 for a school year)</Label>
+              <Input id="add-income-contract" inputMode="numeric" value={contractMonths} onChange={e => setContractMonths(e.target.value)} placeholder="10" />
             </div>
           )}
 

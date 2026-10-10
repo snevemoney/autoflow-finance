@@ -15,7 +15,8 @@ import {
   fundingItemsOf, useAppSettings, useApproveFunding, useCreditDecision, useFundingChecklist, useMarkFunded, usePreferences, useSetCreditCondition,
 } from '@/hooks/use-autoflow';
 import { toast } from '@/hooks/use-toast';
-import { MoveToMenu, useDealMover } from './DealMover';
+import { MoveToMenu } from './DealMover';
+import { useDealMover } from '@/hooks/use-deal-mover';
 import { errorMessage, MAX_CONDITIONS, type CreditBureau, type CreditDecisionValue, type CreditTier } from '@/lib/rpc';
 import type { AppPreferences } from '@/lib/preferences';
 import { cn } from '@/lib/utils';

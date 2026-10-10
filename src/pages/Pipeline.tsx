@@ -7,7 +7,8 @@ import {
 } from '@dnd-kit/core';
 import { AppHeader } from '@/components/layout/AppHeader';
 import { DealCard } from '@/components/deals/DealCard';
-import { MoveToMenu, useDealMover, type MovableDeal } from '@/components/deals/DealMover';
+import { MoveToMenu } from '@/components/deals/DealMover';
+import { useDealMover, type MovableDeal } from '@/hooks/use-deal-mover';
 import { QueryError } from '@/components/QueryError';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/contexts/AuthContext';
