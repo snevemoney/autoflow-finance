@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -8,7 +8,12 @@ import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { supabase } from '@/integrations/supabase/client';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useAuth } from '@/contexts/AuthContext';
+import { useApplicantDebts } from '@/hooks/use-income';
+import { qk } from '@/lib/query-keys';
+import { errorMessage } from '@/lib/rpc';
+import { QueryError } from '@/components/QueryError';
 import { Scale, Plus, Trash2, Gavel, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
@@ -71,19 +76,12 @@ export function ApplicantDebtsCard({ dealId, customerId }: ApplicantDebtsCardPro
     notes: '',
   });
   const queryClient = useQueryClient();
-
-  const { data: debts = [], isLoading } = useQuery({
-    queryKey: ['applicant-debts', dealId],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('applicant_debts')
-        .select('*')
-        .eq('deal_id', dealId)
-        .order('created_at', { ascending: true });
-      if (error) throw error;
-      return (data ?? []) as ApplicantDebt[];
-    },
-  });
+  const { user } = useAuth();
+  const ids = useId();
+  const debtsQuery = useApplicantDebts(dealId);
+  const debts = debtsQuery.data ?? [];
+  const isLoading = debtsQuery.isLoading;
+  const key = qk.debts(user?.id, dealId);
 
   const addMutation = useMutation({
     mutationFn: async () => {
@@ -93,7 +91,7 @@ export function ApplicantDebtsCard({ dealId, customerId }: ApplicantDebtsCardPro
       const { error } = await supabase.from('applicant_debts').insert({
         deal_id: dealId,
         customer_id: customerId,
-        debt_type: formData.debt_type as any,
+        debt_type: formData.debt_type as DebtType,
         creditor_name: formData.creditor_name,
         monthly_payment: parseFloat(formData.monthly_payment),
         total_balance: formData.total_balance ? parseFloat(formData.total_balance) : null,
@@ -104,13 +102,13 @@ export function ApplicantDebtsCard({ dealId, customerId }: ApplicantDebtsCardPro
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['applicant-debts', dealId] });
+      queryClient.invalidateQueries({ queryKey: key });
       setShowForm(false);
       setFormData({ debt_type: '', creditor_name: '', monthly_payment: '', total_balance: '', months_remaining: '', is_court_ordered: false, notes: '' });
       toast({ title: 'Debt Added', description: 'Applicant debt has been recorded.' });
     },
-    onError: (err: any) => {
-      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    onError: (err) => {
+      toast({ title: 'Could not add the debt', description: errorMessage(err), variant: 'destructive' });
     },
   });
 
@@ -120,9 +118,10 @@ export function ApplicantDebtsCard({ dealId, customerId }: ApplicantDebtsCardPro
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['applicant-debts', dealId] });
-      toast({ title: 'Debt Removed' });
+      queryClient.invalidateQueries({ queryKey: key });
+      toast({ title: 'Debt removed' });
     },
+    onError: (err) => toast({ title: 'Could not remove the debt', description: errorMessage(err), variant: 'destructive' }),
   });
 
   const totalMonthly = debts.reduce((s, d) => s + d.monthly_payment, 0);
@@ -137,7 +136,7 @@ export function ApplicantDebtsCard({ dealId, customerId }: ApplicantDebtsCardPro
             <Scale className="h-5 w-5" />
             Applicant Debts
           </CardTitle>
-          <Button variant="outline" size="sm" onClick={() => setShowForm(!showForm)}>
+          <Button variant="outline" size="sm" onClick={() => setShowForm(!showForm)} aria-expanded={showForm}>
             <Plus className="h-4 w-4 mr-1" /> Add Debt
           </Button>
         </div>
@@ -169,8 +168,9 @@ export function ApplicantDebtsCard({ dealId, customerId }: ApplicantDebtsCardPro
           </div>
         )}
 
+        {debtsQuery.isError && <QueryError compact what="the debts" error={debtsQuery.error} onRetry={() => debtsQuery.refetch()} />}
         {/* Debt list */}
-        {debts.length === 0 && !isLoading && (
+        {debts.length === 0 && !isLoading && !debtsQuery.isError && (
           <p className="text-sm text-muted-foreground text-center py-2">No debts recorded</p>
         )}
         {debts.map(debt => (
@@ -195,9 +195,11 @@ export function ApplicantDebtsCard({ dealId, customerId }: ApplicantDebtsCardPro
               variant="ghost"
               size="icon"
               className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
+              aria-label={`Remove ${DEBT_TYPE_LABELS[debt.debt_type] ?? 'debt'} ${debt.creditor_name}`}
+              disabled={deleteMutation.isPending}
               onClick={() => deleteMutation.mutate(debt.id)}
             >
-              <Trash2 className="h-3.5 w-3.5" />
+              <Trash2 className="h-3.5 w-3.5" aria-hidden />
             </Button>
           </div>
         ))}
@@ -205,11 +207,11 @@ export function ApplicantDebtsCard({ dealId, customerId }: ApplicantDebtsCardPro
         {/* Add form */}
         {showForm && (
           <div className="space-y-3 p-3 rounded-lg border bg-muted/20">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 min-[380px]:grid-cols-2 gap-3">
               <div>
-                <Label className="text-xs">Debt Type *</Label>
+                <Label htmlFor={`${ids}-type`} className="text-xs">Debt type *</Label>
                 <Select value={formData.debt_type} onValueChange={v => setFormData(f => ({ ...f, debt_type: v as DebtType }))}>
-                  <SelectTrigger className="h-8 text-xs">
+                  <SelectTrigger id={`${ids}-type`} className="h-8 text-xs">
                     <SelectValue placeholder="Select type" />
                   </SelectTrigger>
                   <SelectContent>
@@ -220,29 +222,30 @@ export function ApplicantDebtsCard({ dealId, customerId }: ApplicantDebtsCardPro
                 </Select>
               </div>
               <div>
-                <Label className="text-xs">Creditor *</Label>
-                <Input className="h-8 text-xs" value={formData.creditor_name} onChange={e => setFormData(f => ({ ...f, creditor_name: e.target.value }))} placeholder="e.g. IRS" />
+                <Label htmlFor={`${ids}-creditor`} className="text-xs">Creditor *</Label>
+                <Input id={`${ids}-creditor`} className="h-8 text-xs" value={formData.creditor_name} onChange={e => setFormData(f => ({ ...f, creditor_name: e.target.value }))} placeholder="e.g. IRS" />
               </div>
             </div>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 min-[380px]:grid-cols-3 gap-3">
               <div>
-                <Label className="text-xs">Monthly Payment *</Label>
-                <Input className="h-8 text-xs" type="number" value={formData.monthly_payment} onChange={e => setFormData(f => ({ ...f, monthly_payment: e.target.value }))} placeholder="0" />
+                <Label htmlFor={`${ids}-monthly`} className="text-xs">Monthly payment *</Label>
+                <Input id={`${ids}-monthly`} className="h-8 text-xs" inputMode="decimal" value={formData.monthly_payment} onChange={e => setFormData(f => ({ ...f, monthly_payment: e.target.value }))} placeholder="0" />
               </div>
               <div>
-                <Label className="text-xs">Total Balance</Label>
-                <Input className="h-8 text-xs" type="number" value={formData.total_balance} onChange={e => setFormData(f => ({ ...f, total_balance: e.target.value }))} placeholder="Optional" />
+                <Label htmlFor={`${ids}-balance`} className="text-xs">Total balance</Label>
+                <Input id={`${ids}-balance`} className="h-8 text-xs" inputMode="decimal" value={formData.total_balance} onChange={e => setFormData(f => ({ ...f, total_balance: e.target.value }))} placeholder="Optional" />
               </div>
               <div>
-                <Label className="text-xs">Months Left</Label>
-                <Input className="h-8 text-xs" type="number" value={formData.months_remaining} onChange={e => setFormData(f => ({ ...f, months_remaining: e.target.value }))} placeholder="Optional" />
+                <Label htmlFor={`${ids}-months`} className="text-xs">Months left</Label>
+                <Input id={`${ids}-months`} className="h-8 text-xs" inputMode="numeric" value={formData.months_remaining} onChange={e => setFormData(f => ({ ...f, months_remaining: e.target.value }))} placeholder="Optional" />
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <Switch checked={formData.is_court_ordered} onCheckedChange={v => setFormData(f => ({ ...f, is_court_ordered: v }))} />
-              <Label className="text-xs">Court-Ordered</Label>
+              <Switch id={`${ids}-court`} checked={formData.is_court_ordered} onCheckedChange={v => setFormData(f => ({ ...f, is_court_ordered: v }))} />
+              <Label htmlFor={`${ids}-court`} className="text-xs">Court-ordered</Label>
             </div>
-            <Textarea className="text-xs h-16" placeholder="Notes (optional)" value={formData.notes} onChange={e => setFormData(f => ({ ...f, notes: e.target.value }))} />
+            <Label htmlFor={`${ids}-notes`} className="sr-only">Notes</Label>
+            <Textarea id={`${ids}-notes`} className="text-xs h-16" placeholder="Notes (optional)" value={formData.notes} onChange={e => setFormData(f => ({ ...f, notes: e.target.value }))} />
             <div className="flex gap-2">
               <Button size="sm" onClick={() => addMutation.mutate()} disabled={addMutation.isPending}>
                 {addMutation.isPending ? 'Saving...' : 'Save'}

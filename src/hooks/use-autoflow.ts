@@ -1,9 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import type { Database, Json } from '@/integrations/supabase/types';
-import type { DocumentType } from '@/types/deal';
+import type { DealStatus, DocumentType } from '@/types/deal';
 import { useAuth } from '@/contexts/AuthContext';
-import { useRealtimeRefresh } from './use-deals';
+import { qk } from '@/lib/query-keys';
+import { DEFAULT_PREFERENCES, readPreferences, type AppPreferences } from '@/lib/preferences';
+import {
+  adminMoveDeal, approveFunding, callRpc, declineDeal, markFunded, recordCreditDecision, setCreditCondition,
+  setUserAccess, setUserActive, updateFundingChecklist, type AppRole, type CreditDecisionInput,
+} from '@/lib/rpc';
+import { useLiveUpdates } from './use-live';
+
+export { useQueueCounts } from './use-deals';
 
 type Tables = Database['public']['Tables'];
 export type DocumentRequest = Tables['document_requests']['Row'];
@@ -11,6 +19,9 @@ export type NotificationRow = Tables['notifications']['Row'];
 export type AppSettings = Tables['app_settings']['Row'];
 export type DealerRow = Tables['dealers']['Row'];
 export type DealerStats = Database['public']['Views']['dealer_stats']['Row'];
+export type DealerRequest = DocumentRequest & {
+  deals?: { deal_number: string; customers?: { first_name: string; last_name: string } | null } | null;
+};
 
 export interface ChecklistItem {
   item_key: string;
@@ -30,11 +41,17 @@ export interface Automations {
 
 export interface FundingChecklistItem { key: string; label: string }
 
+function useUid() {
+  const { user } = useAuth();
+  return user?.id ?? null;
+}
+
 // ------------------------------------------------------------------ checklist + requests
 export function useChecklist(dealId: string | undefined) {
+  const uid = useUid();
   return useQuery({
-    queryKey: ['checklist', dealId],
-    enabled: !!dealId,
+    queryKey: qk.checklist(uid, dealId),
+    enabled: !!dealId && !!uid,
     queryFn: async () => {
       const { data, error } = await supabase.rpc('deal_checklist', { _deal_id: dealId! });
       if (error) throw error;
@@ -44,54 +61,48 @@ export function useChecklist(dealId: string | undefined) {
 }
 
 export function useDealRequests(dealId: string | undefined) {
+  const uid = useUid();
   return useQuery({
-    queryKey: ['requests', dealId],
-    enabled: !!dealId,
+    queryKey: qk.requests(uid, dealId),
+    enabled: !!dealId && !!uid,
     queryFn: async () => {
       const { data, error } = await supabase
-        .from('document_requests').select('*').eq('deal_id', dealId!).order('created_at', { ascending: false });
+        .from('document_requests').select('*').eq('deal_id', dealId!).order('created_at', { ascending: false }).limit(100);
       if (error) throw error;
       return data ?? [];
     },
   });
 }
 
-/** Every open request across the signed-in dealer's deals (portal). */
+/** Open requests across the signed-in dealer's deals (RLS scopes them), with the deal they belong to. */
 export function useOpenDealerRequests(enabled = true) {
-  useRealtimeRefresh(enabled ? 'dealer-requests' : null, ['document_requests'], [['dealer-requests']]);
+  const uid = useUid();
+  useLiveUpdates(['document_requests'], enabled);
   return useQuery({
-    queryKey: ['dealer-requests'],
-    enabled,
-    queryFn: async () => {
+    queryKey: qk.dealerRequests(uid),
+    enabled: enabled && !!uid,
+    queryFn: async (): Promise<DealerRequest[]> => {
       const { data, error } = await supabase
-        .from('document_requests').select('*').eq('status', 'open').order('created_at', { ascending: false });
+        .from('document_requests')
+        .select('*, deals (deal_number, customers (first_name, last_name))')
+        .eq('status', 'open')
+        .order('created_at', { ascending: false })
+        .limit(200);
       if (error) throw error;
-      return data ?? [];
-    },
-  });
-}
-
-/** Open requests for all deals (staff dashboard + deal cards). */
-export function useOpenRequestCounts(enabled = true) {
-  return useQuery({
-    queryKey: ['open-request-counts'],
-    enabled,
-    queryFn: async () => {
-      const { data, error } = await supabase.from('document_requests').select('deal_id').eq('status', 'open');
-      if (error) throw error;
-      const map = new Map<string, number>();
-      for (const r of data ?? []) map.set(r.deal_id, (map.get(r.deal_id) ?? 0) + 1);
-      return map;
+      return (data ?? []) as unknown as DealerRequest[];
     },
   });
 }
 
 function useInvalidateDeal(dealId: string | undefined) {
   const qc = useQueryClient();
+  const uid = useUid();
   return () => {
-    ['deal', 'checklist', 'requests', 'income-sources', 'income-sources-detail'].forEach((k) =>
-      qc.invalidateQueries({ queryKey: [k, dealId] }));
-    qc.invalidateQueries({ queryKey: ['deals'] });
+    [qk.deal(uid, dealId), qk.checklist(uid, dealId), qk.requests(uid, dealId), qk.incomeSources(uid, dealId)]
+      .forEach((queryKey) => qc.invalidateQueries({ queryKey }));
+    qc.invalidateQueries({ queryKey: qk.deals(uid) });
+    qc.invalidateQueries({ queryKey: qk.queueCounts(uid) });
+    qc.invalidateQueries({ queryKey: qk.dashboard(uid) });
   };
 }
 
@@ -129,24 +140,19 @@ export function useCancelRequest(dealId: string | undefined) {
   });
 }
 
-// ------------------------------------------------------------------ decisions
+// ------------------------------------------------------------------ decisions (all through RPCs — deals are never updated directly)
 export function useCreditDecision(dealId: string | undefined) {
   const refresh = useInvalidateDeal(dealId);
   return useMutation({
-    mutationFn: async (input: {
-      decision: 'approved' | 'conditional' | 'declined';
-      notes?: string;
-      score?: number | null;
-      tier?: Database['public']['Enums']['credit_tier'] | null;
-      bureau?: Database['public']['Enums']['credit_bureau'] | null;
-    }) => {
-      const { data, error } = await supabase.rpc('record_credit_decision', {
-        _deal_id: dealId!, _decision: input.decision, _notes: input.notes,
-        _score: input.score ?? undefined, _tier: input.tier ?? undefined, _bureau: input.bureau ?? undefined,
-      });
-      if (error) throw error;
-      return data;
-    },
+    mutationFn: (input: Omit<CreditDecisionInput, 'dealId'>) => recordCreditDecision({ ...input, dealId: dealId! }),
+    onSuccess: refresh,
+  });
+}
+
+export function useSetCreditCondition(dealId: string | undefined) {
+  const refresh = useInvalidateDeal(dealId);
+  return useMutation({
+    mutationFn: ({ conditionId, cleared }: { conditionId: string; cleared: boolean }) => setCreditCondition(dealId!, conditionId, cleared),
     onSuccess: refresh,
   });
 }
@@ -154,75 +160,73 @@ export function useCreditDecision(dealId: string | undefined) {
 export function useFundingChecklist(dealId: string | undefined) {
   const refresh = useInvalidateDeal(dealId);
   return useMutation({
-    mutationFn: async (items: Record<string, boolean>) => {
-      const { error } = await supabase.rpc('update_funding_checklist', { _deal_id: dealId!, _items: items as unknown as Json });
-      if (error) throw error;
-    },
+    mutationFn: (items: Record<string, boolean>) => updateFundingChecklist(dealId!, items),
     onSuccess: refresh,
   });
 }
 
 export function useApproveFunding(dealId: string | undefined) {
   const refresh = useInvalidateDeal(dealId);
-  return useMutation({
-    mutationFn: async (notes?: string) => {
-      const { data, error } = await supabase.rpc('approve_funding', { _deal_id: dealId!, _notes: notes });
-      if (error) throw error;
-      return data;
-    },
-    onSuccess: refresh,
-  });
+  return useMutation({ mutationFn: (notes?: string) => approveFunding(dealId!, notes), onSuccess: refresh });
 }
 
 export function useMarkFunded(dealId: string | undefined) {
   const refresh = useInvalidateDeal(dealId);
+  return useMutation({ mutationFn: (amount?: number | null) => markFunded(dealId!, amount), onSuccess: refresh });
+}
+
+/** Admin manual move (pipeline drag, "Move to…"). */
+export function useAdminMoveDeal() {
+  const qc = useQueryClient();
+  const uid = useUid();
   return useMutation({
-    mutationFn: async (amount?: number | null) => {
-      const { data, error } = await supabase.rpc('mark_funded', { _deal_id: dealId!, _amount: amount ?? undefined });
-      if (error) throw error;
-      return data;
+    mutationFn: ({ dealId, status, note }: { dealId: string; status: DealStatus; note?: string | null }) => adminMoveDeal(dealId, status, note),
+    onSettled: (_d, _e, v) => {
+      qc.invalidateQueries({ queryKey: qk.deals(uid) });
+      qc.invalidateQueries({ queryKey: qk.deal(uid, v.dealId) });
+      qc.invalidateQueries({ queryKey: qk.queueCounts(uid) });
+      qc.invalidateQueries({ queryKey: qk.dashboard(uid) });
     },
-    onSuccess: refresh,
   });
 }
 
-export function useSetDealStatus() {
+export function useDeclineDeal() {
   const qc = useQueryClient();
+  const uid = useUid();
   return useMutation({
-    mutationFn: async ({ dealId, status, notes }: { dealId: string; status: Database['public']['Enums']['deal_status']; notes?: string }) => {
-      const update: Tables['deals']['Update'] = { status };
-      if (notes) update.decision_notes = notes;
-      const { error } = await supabase.from('deals').update(update).eq('id', dealId);
-      if (error) throw error;
-    },
-    onSuccess: (_d, v) => {
-      qc.invalidateQueries({ queryKey: ['deals'] });
-      qc.invalidateQueries({ queryKey: ['deal', v.dealId] });
+    mutationFn: ({ dealId, reason, dealerMessage }: { dealId: string; reason: string; dealerMessage?: string | null }) =>
+      declineDeal(dealId, reason, dealerMessage),
+    onSettled: (_d, _e, v) => {
+      qc.invalidateQueries({ queryKey: qk.deals(uid) });
+      qc.invalidateQueries({ queryKey: qk.deal(uid, v.dealId) });
+      qc.invalidateQueries({ queryKey: qk.queueCounts(uid) });
+      qc.invalidateQueries({ queryKey: qk.dashboard(uid) });
+      qc.invalidateQueries({ queryKey: qk.requests(uid, v.dealId) });
     },
   });
 }
 
 // ------------------------------------------------------------------ notifications
 export function useNotifications() {
-  const { user } = useAuth();
-  useRealtimeRefresh(user ? `notifications-${user.id}` : null, [{ table: 'notifications', filter: `user_id=eq.${user?.id}` }], [['notifications']]);
+  const uid = useUid();
+  useLiveUpdates(['notifications'], !!uid);
   const qc = useQueryClient();
   const query = useQuery({
-    queryKey: ['notifications'],
-    enabled: !!user,
+    queryKey: qk.notifications(uid),
+    enabled: !!uid,
     queryFn: async () => {
       const { data, error } = await supabase
-        .from('notifications').select('*').eq('user_id', user!.id).order('created_at', { ascending: false }).limit(40);
+        .from('notifications').select('*').eq('user_id', uid!).order('created_at', { ascending: false }).limit(40);
       if (error) throw error;
       return data ?? [];
     },
   });
   const markRead = async (ids?: string[]) => {
-    if (!user) return;
-    let q = supabase.from('notifications').update({ read: true }).eq('user_id', user.id).eq('read', false);
-    if (ids?.length) q = q.in('id', ids);
+    if (!uid) return;
+    let q = supabase.from('notifications').update({ read: true }).eq('user_id', uid).eq('read', false);
+    if (ids?.length) q = q.in('id', ids.slice(0, 50));
     await q;
-    qc.invalidateQueries({ queryKey: ['notifications'] });
+    qc.invalidateQueries({ queryKey: qk.notifications(uid) });
   };
   return { ...query, markRead };
 }
@@ -233,9 +237,10 @@ export const DEFAULT_AUTOMATIONS: Automations = {
 };
 
 export function useAppSettings(enabled = true) {
+  const uid = useUid();
   return useQuery({
-    queryKey: ['app-settings'],
-    enabled,
+    queryKey: qk.settings(uid),
+    enabled: enabled && !!uid,
     queryFn: async () => {
       const { data, error } = await supabase.from('app_settings').select('*').maybeSingle();
       if (error) throw error;
@@ -244,16 +249,44 @@ export function useAppSettings(enabled = true) {
   });
 }
 
+/**
+ * The preferences every screen uses (APR range, terms, limits, company name…).
+ * Staff read app_settings; dealers can't, so they ask `public_settings()` and fall back to the defaults.
+ */
+export function usePreferences(): { prefs: AppPreferences; isLoading: boolean } {
+  const { isStaff } = useAuth();
+  const uid = useUid();
+  const settings = useAppSettings(isStaff);
+  const pub = useQuery({
+    queryKey: qk.preferences(uid),
+    enabled: !isStaff && !!uid,
+    retry: false,
+    staleTime: 5 * 60_000,
+    queryFn: async () => {
+      try {
+        return await callRpc<unknown>('public_settings');
+      } catch {
+        return null;
+      }
+    },
+  });
+  if (isStaff) return { prefs: settings.data ? readPreferences(settings.data.preferences) : DEFAULT_PREFERENCES, isLoading: settings.isLoading };
+  return { prefs: readPreferences(pub.data), isLoading: pub.isLoading };
+}
+
 export function useSaveSettings() {
   const qc = useQueryClient();
-  const { user } = useAuth();
+  const uid = useUid();
   return useMutation({
     mutationFn: async (patch: Tables['app_settings']['Update']) => {
       const { error } = await supabase.from('app_settings')
-        .update({ ...patch, updated_at: new Date().toISOString(), updated_by: user?.id ?? null }).eq('id', true);
+        .update({ ...patch, updated_at: new Date().toISOString(), updated_by: uid }).eq('id', true);
       if (error) throw error;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['app-settings'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: qk.settings(uid) });
+      qc.invalidateQueries({ queryKey: qk.preferences(uid) });
+    },
   });
 }
 
@@ -264,13 +297,14 @@ export function fundingItemsOf(settings: AppSettings | null | undefined): Fundin
 
 // ------------------------------------------------------------------ dealers + people
 export function useDealerStats(enabled = true) {
+  const uid = useUid();
   return useQuery({
-    queryKey: ['dealer-stats'],
-    enabled,
+    queryKey: qk.dealerStats(uid),
+    enabled: enabled && !!uid,
     queryFn: async () => {
       const { data, error } = await supabase.from('dealer_stats').select('*');
       if (error) throw error;
-      return new Map((data ?? []).map((r) => [r.dealer_id!, r]));
+      return new Map((data ?? []).map((row) => [row.dealer_id!, row]));
     },
   });
 }
@@ -283,14 +317,15 @@ export interface StaffUser {
   isActive: boolean;
   lastLogin: string | null;
   createdAt: string;
-  roles: Database['public']['Enums']['app_role'][];
+  roles: AppRole[];
   dealerId: string | null;
 }
 
 export function useUsers(enabled = true) {
+  const uid = useUid();
   return useQuery({
-    queryKey: ['users'],
-    enabled,
+    queryKey: qk.users(uid),
+    enabled: enabled && !!uid,
     queryFn: async (): Promise<StaffUser[]> => {
       const [profiles, roles, links] = await Promise.all([
         supabase.from('profiles').select('*').order('name'),
@@ -298,8 +333,10 @@ export function useUsers(enabled = true) {
         supabase.from('dealer_users').select('user_id, dealer_id'),
       ]);
       if (profiles.error) throw profiles.error;
-      const roleMap = new Map<string, StaffUser['roles']>();
-      for (const r of roles.data ?? []) roleMap.set(r.user_id, [...(roleMap.get(r.user_id) ?? []), r.role]);
+      if (roles.error) throw roles.error;
+      if (links.error) throw links.error;
+      const roleMap = new Map<string, AppRole[]>();
+      for (const x of roles.data ?? []) roleMap.set(x.user_id, [...(roleMap.get(x.user_id) ?? []), x.role]);
       const linkMap = new Map((links.data ?? []).map((l) => [l.user_id, l.dealer_id]));
       return (profiles.data ?? []).map((p) => ({
         userId: p.user_id, name: p.name, email: p.email, department: p.department, isActive: p.is_active,
@@ -309,33 +346,22 @@ export function useUsers(enabled = true) {
   });
 }
 
-// ------------------------------------------------------------------ automation activity
-export interface AutomationActivity {
-  autoSorted: number;
-  incomeFilled: number;
-  requestsSent: number;
-  autoRouted: number;
-}
-
-export function useAutomationActivity(days = 7, enabled = true) {
-  return useQuery({
-    queryKey: ['automation-activity', days],
-    enabled,
-    queryFn: async (): Promise<AutomationActivity> => {
-      const since = new Date(Date.now() - days * 86_400_000).toISOString();
-      const { data, error } = await supabase
-        .from('deal_timeline').select('type, metadata').gte('created_at', since)
-        .in('type', ['automation', 'document_request', 'status_change']);
-      if (error) throw error;
-      const out = { autoSorted: 0, incomeFilled: 0, requestsSent: 0, autoRouted: 0 };
-      for (const row of data ?? []) {
-        const m = (row.metadata ?? {}) as Record<string, unknown>;
-        if (m.automation === 'auto_sort') out.autoSorted++;
-        else if (m.automation === 'auto_fill_income') out.incomeFilled++;
-        else if (m.automation === 'auto_route') out.autoRouted++;
-        else if (row.type === 'document_request' && m.source === 'automation' && !m.fulfilled) out.requestsSent++;
-      }
-      return out;
-    },
+export function useSetUserAccess() {
+  const qc = useQueryClient();
+  const uid = useUid();
+  return useMutation({
+    mutationFn: ({ userId, role, dealerId }: { userId: string; role: AppRole | null; dealerId?: string | null }) => setUserAccess(userId, role, dealerId),
+    onSettled: () => qc.invalidateQueries({ queryKey: qk.users(uid) }),
   });
 }
+
+export function useSetUserActive() {
+  const qc = useQueryClient();
+  const uid = useUid();
+  return useMutation({
+    mutationFn: ({ userId, active }: { userId: string; active: boolean }) => setUserActive(userId, active),
+    onSettled: () => qc.invalidateQueries({ queryKey: qk.users(uid) }),
+  });
+}
+
+export type { Json };

@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils';
 import type { Deal } from '@/types/deal';
 import type { IncomeSource } from '@/components/deals/IncomeSourceCard';
 import type { ApplicantDebt } from '@/components/deals/ApplicantDebtsCard';
+import { usePreferences } from '@/hooks/use-autoflow';
 
 interface DealSummaryCardProps {
   deal: Deal;
@@ -13,7 +14,7 @@ interface DealSummaryCardProps {
 
 type RiskLevel = 'low' | 'moderate' | 'high';
 
-function computeRisk(deal: DealSummaryCardProps['deal'], incomeSources?: IncomeSource[], debts?: ApplicantDebt[]): { level: RiskLevel; score: number; concerns: string[] } {
+function computeRisk(deal: DealSummaryCardProps['deal'], limits: { maxPti: number; maxDti: number }, incomeSources?: IncomeSource[], debts?: ApplicantDebt[]): { level: RiskLevel; score: number; concerns: string[] } {
   let score = 0;
   const concerns: string[] = [];
 
@@ -39,15 +40,15 @@ function computeRisk(deal: DealSummaryCardProps['deal'], incomeSources?: IncomeS
   const payment = deal.financingTerms.monthlyPayment;
   if (monthlyIncome > 0) {
     const ratio = payment / monthlyIncome;
-    if (ratio > 0.25) { score += 20; concerns.push('Payment >25% of income'); }
-    else if (ratio > 0.15) { score += 10; }
+    if (ratio * 100 > limits.maxPti) { score += 20; concerns.push(`Payment over ${limits.maxPti}% of income`); }
+    else if (ratio * 100 > limits.maxPti * 0.75) { score += 10; }
   }
 
   // Unverified income sources
   if (incomeSources && incomeSources.length > 0) {
     const unverified = incomeSources.filter(s => s.verification_status === 'unverified').length;
     if (unverified > 0) { score += unverified * 5; concerns.push(`${unverified} unverified income source(s)`); }
-    const totalFlags = incomeSources.reduce((s, src) => s + src.flag_reasons.length, 0);
+    const totalFlags = incomeSources.reduce((s, src) => s + (src.flag_reasons ?? []).length, 0);
     if (totalFlags > 0) { score += totalFlags * 5; concerns.push(`${totalFlags} income flag(s)`); }
   }
 
@@ -69,7 +70,7 @@ function computeRisk(deal: DealSummaryCardProps['deal'], incomeSources?: IncomeS
     const payment = deal.financingTerms.monthlyPayment;
     if (monthlyIncome > 0) {
       const dti = ((payment + totalDebtPayments) / monthlyIncome) * 100;
-      if (dti > 45) { score += 20; concerns.push(`High DTI (${dti.toFixed(0)}%)`); }
+      if (dti > limits.maxDti) { score += 20; concerns.push(`DTI ${dti.toFixed(0)}% (limit ${limits.maxDti}%)`); }
     }
     const hasGarnishments = debts.some(d => d.debt_type === 'garnishment');
     if (hasGarnishments) { score += 10; concerns.push('Active garnishment(s)'); }
@@ -82,7 +83,8 @@ function computeRisk(deal: DealSummaryCardProps['deal'], incomeSources?: IncomeS
 }
 
 export function DealSummaryCard({ deal, incomeSources, debts }: DealSummaryCardProps) {
-  const risk = computeRisk(deal, incomeSources, debts);
+  const { prefs } = usePreferences();
+  const risk = computeRisk(deal, { maxPti: prefs.max_pti, maxDti: prefs.max_dti }, incomeSources, debts);
 
   let monthlyIncome: number;
   if (incomeSources && incomeSources.length > 0) {
@@ -118,7 +120,7 @@ export function DealSummaryCard({ deal, incomeSources, debts }: DealSummaryCardP
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3 text-sm">
+        <div className="grid grid-cols-2 gap-3 text-sm [&>div]:min-w-0">
           <div>
             <p className="text-muted-foreground text-xs">Customer</p>
             <p className="font-medium">{deal.customer.firstName} {deal.customer.lastName}</p>

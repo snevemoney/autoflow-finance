@@ -43,6 +43,8 @@ export interface IncomeSource {
   gross_per_period?: number | null;
   auto_filled_at?: string | null;
   auto_fill_document_id?: string | null;
+  /** set when an analyst applied a figure; auto-fill never changes it afterwards */
+  calc_locked?: boolean;
 }
 
 export interface LinkedExtraction {
@@ -97,8 +99,8 @@ export function IncomeSourceCard({ source, linkedExtractions, onUpdated }: Incom
   const handleFillFieldReady = useCallback((handler: (field: string, value: string) => void) => {
     setFillHandler(() => handler);
   }, []);
-  const typeConfig = SOURCE_TYPE_CONFIG[source.source_type];
-  const statusConfig = STATUS_CONFIG[source.verification_status];
+  const typeConfig = SOURCE_TYPE_CONFIG[source.source_type] ?? SOURCE_TYPE_CONFIG.salaried;
+  const statusConfig = STATUS_CONFIG[source.verification_status] ?? STATUS_CONFIG.unverified;
   const TypeIcon = typeConfig.icon;
   const StatusIcon = statusConfig.icon;
   const showCalcBadge = source.calc_method && source.calc_method !== 'mi';
@@ -115,8 +117,8 @@ export function IncomeSourceCard({ source, linkedExtractions, onUpdated }: Incom
     <Card className="border-l-4" style={{ borderLeftColor: 'hsl(var(--primary))' }}>
       <CardContent className="p-4 space-y-3">
         {/* Header */}
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Badge variant="outline" className={cn('text-xs gap-1', typeConfig.color)}>
               <TypeIcon className="h-3 w-3" />
               {typeConfig.label}
@@ -167,12 +169,12 @@ export function IncomeSourceCard({ source, linkedExtractions, onUpdated }: Incom
         <div className="grid grid-cols-2 gap-3 text-sm">
           <div>
             <p className="text-muted-foreground text-xs">Stated Income</p>
-            <p className="font-medium">${stated.toLocaleString()}/mo</p>
+            <p className="font-medium">${stated.toLocaleString('en-CA')}/mo</p>
           </div>
           <div>
             <p className="text-muted-foreground text-xs">Calculated Income</p>
             <p className="font-medium">
-              {calculated != null ? `$${calculated.toLocaleString()}/mo` : 'Pending'}
+              {calculated != null ? `$${calculated.toLocaleString('en-CA', { maximumFractionDigits: 2 })}/mo` : 'Pending'}
             </p>
           </div>
         </div>
@@ -207,9 +209,9 @@ export function IncomeSourceCard({ source, linkedExtractions, onUpdated }: Incom
         )}
 
         {/* Flags */}
-        {source.flag_reasons.length > 0 && (
+        {(source.flag_reasons ?? []).length > 0 && (
           <div className="space-y-1">
-            {source.flag_reasons.map((flag, i) => (
+            {(source.flag_reasons ?? []).map((flag, i) => (
               <div key={i} className="flex items-center gap-1.5 text-xs text-warning">
                 <AlertTriangle className="h-3 w-3 shrink-0" />
                 {flag}
@@ -222,7 +224,9 @@ export function IncomeSourceCard({ source, linkedExtractions, onUpdated }: Incom
         {onUpdated && (
           <div className="border-t border-border pt-2 mt-2">
             <button
+              type="button"
               onClick={() => setCalcOpen(!calcOpen)}
+              aria-expanded={calcOpen}
               className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors w-full"
             >
               {calcOpen ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
@@ -251,6 +255,7 @@ export function IncomeSourceCard({ source, linkedExtractions, onUpdated }: Incom
                   additionalDocsRequested={source.additional_docs_requested ?? []}
                   vehicleForWork={source.vehicle_for_work ?? false}
                   contractMonths={source.contract_months}
+                  calcLocked={!!source.calc_locked}
                   sourceCreatedAt={source.created_at}
                   onUpdated={onUpdated}
                   onFillFieldReady={handleFillFieldReady}

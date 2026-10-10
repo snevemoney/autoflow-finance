@@ -1,33 +1,24 @@
-import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Calculator, AlertTriangle, FileText, Loader2, Ban, ShieldAlert, FileDown, TrendingUp, Lock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { DroppableInput } from './DroppableInput';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Calculator, AlertTriangle, FileText, Loader2, Ban, ShieldAlert, FileDown, TrendingUp } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { DroppableInput } from './DroppableInput';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
+import { addTimelineNote, updateIncomeSource } from '@/hooks/use-income';
+import { errorMessage } from '@/lib/rpc';
+import { cn } from '@/lib/utils';
+import { diagnoseGap } from '@/lib/income-diagnosis';
+import {
+  computeMonthlyIncome, DEFAULT_BENEFIT_PERCENT, formatMoney, FREQUENCY_FORMULA, FREQUENCY_LABELS, isBenefitType, isPayFrequency,
+  miValue, miYtdGapPercent, PAY_FREQUENCIES, parseAmount, ytdValue, type CalcMethod, type IncomeInputs, type MiInputMode, type PayFrequency,
+} from '@/lib/income-math';
 
-export type CalcMethod = 'mi' | 'ytd' | 'mi_plus_10' | 'mi_plus_20' | 'manual' | 'lower_of';
-type MiInputMode = 'salary' | 'hourly';
-type PayFrequency = 'weekly' | 'biweekly' | 'semimonthly' | 'monthly';
-
-const FREQUENCY_MULTIPLIERS: Record<PayFrequency, number> = {
-  weekly: 4.33,
-  biweekly: 2.17,
-  semimonthly: 2.00,
-  monthly: 1.00,
-};
-
-const FREQUENCY_LABELS: Record<PayFrequency, string> = {
-  weekly: 'Weekly',
-  biweekly: 'Biweekly',
-  semimonthly: 'Semimonthly',
-  monthly: 'Monthly',
-};
+export type { CalcMethod };
 
 interface IncomeCalculatorProps {
   sourceId: string;
@@ -50,612 +41,265 @@ interface IncomeCalculatorProps {
   additionalDocsRequested: string[];
   vehicleForWork: boolean;
   contractMonths?: number | null;
+  /** an analyst already applied a figure; auto-fill leaves it alone */
+  calcLocked?: boolean;
   sourceCreatedAt?: string | null;
   onUpdated: () => void;
   onFillFieldReady?: (handler: (field: string, value: string) => void) => void;
 }
 
 const CALC_METHODS: { value: CalcMethod; label: string; short: string }[] = [
-  { value: 'mi', label: 'Monthly Income', short: 'MI' },
-  { value: 'ytd', label: 'Year-to-Date', short: 'YTD' },
-  { value: 'lower_of', label: 'Lower of MI/YTD', short: 'Lower' },
-  { value: 'mi_plus_10', label: 'MI + 10% Tips', short: 'MI+10' },
-  { value: 'mi_plus_20', label: 'MI + 20% Tips', short: 'MI+20' },
-  { value: 'manual', label: 'Manual Override', short: 'Manual' },
+  { value: 'mi', label: 'Monthly income from the current pay stub', short: 'MI' },
+  { value: 'ytd', label: 'Year-to-date average', short: 'YTD' },
+  { value: 'lower_of', label: 'Lower of MI and YTD', short: 'Lower' },
+  { value: 'mi_plus_10', label: 'MI plus 10% tips', short: 'MI+10' },
+  { value: 'mi_plus_20', label: 'MI plus 20% tips', short: 'MI+20' },
+  { value: 'manual', label: 'Manual override', short: 'Manual' },
 ];
 
-export function IncomeCalculator({
-  sourceId,
-  dealId,
-  sourceType,
-  statedMonthlyIncome,
-  calculatedMonthlyIncome,
-  currentCalcMethod,
-  currentTipPercentage,
-  currentYtdGross,
-  currentYtdMonths,
-  currentManualAmount,
-  currentManualReason,
-  currentHourlyRate,
-  currentHoursPerWeek,
-  currentPayFrequency,
-  currentGrossPerPeriod,
-  missedDaysFlag,
-  additionalDocsRequested,
-  vehicleForWork,
-  contractMonths: contractMonthsProp,
-  sourceCreatedAt,
-  onUpdated,
-  onFillFieldReady,
-}: IncomeCalculatorProps) {
-  const [method, setMethod] = useState<CalcMethod>(currentCalcMethod);
-  const [ytdGross, setYtdGross] = useState(currentYtdGross?.toString() ?? '');
-  const [ytdMonths, setYtdMonths] = useState(currentYtdMonths?.toString() ?? '');
-  const [manualAmount, setManualAmount] = useState(currentManualAmount?.toString() ?? '');
-  const [manualReason, setManualReason] = useState(currentManualReason ?? '');
-  const [benefitPercent, setBenefitPercent] = useState(currentTipPercentage?.toString() ?? '50');
-  const [saving, setSaving] = useState(false);
-  const [highlightedField, setHighlightedField] = useState<string | null>(null);
+const str = (n: number | null | undefined) => (n == null ? '' : String(n));
+const GAP_FLAG = 'MI vs YTD gap:';
 
-  // MI sub-mode state
-  const [miInputMode, setMiInputMode] = useState<MiInputMode>(currentHourlyRate ? 'hourly' : 'salary');
-  const [grossPerPeriod, setGrossPerPeriod] = useState(currentGrossPerPeriod != null ? String(currentGrossPerPeriod) : '');
-  const [payFrequency, setPayFrequency] = useState<PayFrequency>((currentPayFrequency as PayFrequency) ?? 'biweekly');
-  const [hourlyRate, setHourlyRate] = useState(currentHourlyRate?.toString() ?? '');
-  const [hoursPerWeek, setHoursPerWeek] = useState(currentHoursPerWeek?.toString() ?? '');
+export function IncomeCalculator({
+  sourceId, dealId, sourceType, statedMonthlyIncome, currentCalcMethod, currentTipPercentage, currentYtdGross, currentYtdMonths,
+  currentManualAmount, currentManualReason, currentHourlyRate, currentHoursPerWeek, currentPayFrequency, currentGrossPerPeriod,
+  missedDaysFlag, additionalDocsRequested, vehicleForWork, contractMonths, calcLocked, onUpdated, onFillFieldReady,
+}: IncomeCalculatorProps) {
+  const benefit = isBenefitType(sourceType);
+  const isBusiness = sourceType === 'self_employed' || sourceType === 'contractor';
+  const [method, setMethod] = useState<CalcMethod>(currentCalcMethod ?? 'mi');
+  const [ytdGross, setYtdGross] = useState(str(currentYtdGross));
+  const [ytdMonths, setYtdMonths] = useState(str(currentYtdMonths));
+  const [manualAmount, setManualAmount] = useState(str(currentManualAmount));
+  const [manualReason, setManualReason] = useState(currentManualReason ?? '');
+  const [benefitPercent, setBenefitPercent] = useState(benefit && currentTipPercentage != null ? String(currentTipPercentage) : String(DEFAULT_BENEFIT_PERCENT));
+  const [miMode, setMiMode] = useState<MiInputMode>(currentHourlyRate ? 'hourly' : 'salary');
+  const [grossPerPeriod, setGrossPerPeriod] = useState(str(currentGrossPerPeriod));
+  const [payFrequency, setPayFrequency] = useState<PayFrequency>(isPayFrequency(currentPayFrequency) ? currentPayFrequency : 'biweekly');
+  const [hourlyRate, setHourlyRate] = useState(str(currentHourlyRate));
+  const [hoursPerWeek, setHoursPerWeek] = useState(str(currentHoursPerWeek));
+  const [saving, setSaving] = useState(false);
+  const [highlighted, setHighlighted] = useState<string | null>(null);
+  const highlightTimer = useRef<ReturnType<typeof setTimeout>>();
 
   const fillField = useCallback((field: string, value: string) => {
     switch (field) {
-      case 'grossPerPeriod': setGrossPerPeriod(value); setMethod('mi'); break;
-      case 'hourlyRate': setHourlyRate(value); setMethod('mi'); break;
-      case 'hoursPerWeek': setHoursPerWeek(value); setMethod('mi'); break;
-      case 'ytdGross': setYtdGross(value); setMethod('ytd'); break;
+      case 'grossPerPeriod': setGrossPerPeriod(value); setMiMode('salary'); setMethod((m) => (m === 'manual' || m === 'ytd' ? 'mi' : m)); break;
+      case 'hourlyRate': setHourlyRate(value); setMiMode('hourly'); break;
+      case 'hoursPerWeek': setHoursPerWeek(value); setMiMode('hourly'); break;
+      case 'ytdGross': setYtdGross(value); setMethod((m) => (m === 'mi' || m === 'manual' ? 'lower_of' : m)); break;
+      case 'ytdMonths': setYtdMonths(value); break;
       case 'manualAmount': setManualAmount(value); setMethod('manual'); break;
-      case 'payFrequency': setPayFrequency(value as PayFrequency); break;
+      case 'payFrequency': if (isPayFrequency(value)) setPayFrequency(value); break;
     }
-    setHighlightedField(field);
-    setTimeout(() => setHighlightedField(null), 700);
+    setHighlighted(field);
+    clearTimeout(highlightTimer.current);
+    highlightTimer.current = setTimeout(() => setHighlighted(null), 700);
   }, []);
 
-  useEffect(() => {
-    onFillFieldReady?.(fillField);
-  }, [fillField, onFillFieldReady]);
+  useEffect(() => { onFillFieldReady?.(fillField); }, [fillField, onFillFieldReady]);
+  useEffect(() => () => clearTimeout(highlightTimer.current), []);
 
-  const handleDropFieldMethod = useCallback((field: string) => {
-    if (field === 'grossPerPeriod' || field === 'hourlyRate' || field === 'hoursPerWeek') setMethod('mi');
-    else if (field === 'ytdGross') setMethod('ytd');
-    else if (field === 'manualAmount') setMethod('manual');
-  }, []);
+  const inputs: IncomeInputs = useMemo(() => ({
+    method,
+    sourceType,
+    miMode,
+    grossPerPeriod: parseAmount(grossPerPeriod),
+    payFrequency,
+    hourlyRate: parseAmount(hourlyRate),
+    hoursPerWeek: parseAmount(hoursPerWeek),
+    ytdGross: parseAmount(ytdGross),
+    ytdMonths: parseAmount(ytdMonths), // fractional months (8.8) are fine
+    manualAmount: parseAmount(manualAmount),
+    benefitPercent: parseAmount(benefitPercent),
+  }), [method, sourceType, miMode, grossPerPeriod, payFrequency, hourlyRate, hoursPerWeek, ytdGross, ytdMonths, manualAmount, benefitPercent]);
 
-  const isBenefitType = sourceType === 'government_assistance' || sourceType === 'unemployed';
-  const baseMI = calculatedMonthlyIncome ?? statedMonthlyIncome;
+  const result = computeMonthlyIncome(inputs);
+  const mi = miValue(inputs);
+  const ytd = ytdValue(inputs);
+  const gap = mi != null && ytd != null ? miYtdGapPercent(mi, ytd) : null;
+  const diagnosis = gap != null && gap > 10 && mi != null && ytd != null
+    ? diagnoseGap({ sourceType, mi, ytd, ytdMonths: inputs.ytdMonths ?? 0, payFrequency, contractMonths })
+    : null;
 
-  const availableMethods = isBenefitType
-    ? CALC_METHODS.filter(m => m.value === 'mi' || m.value === 'ytd' || m.value === 'manual' || m.value === 'lower_of')
-    : CALC_METHODS;
-
-  const computedResult = useMemo(() => {
-    if (isBenefitType && method !== 'manual') {
-      const pct = parseInt(benefitPercent) || 50;
-      const clampedPct = Math.max(0, Math.min(100, pct));
-      if (method === 'ytd') {
-        const gross = parseFloat(ytdGross);
-        const months = parseInt(ytdMonths);
-        if (!gross || !months || months < 1) return null;
-        return Math.round((gross / months) * (clampedPct / 100));
-      }
-      // For MI benefit mode, use the sub-mode inputs
-      if (method === 'mi') {
-        let miBase: number | null = null;
-        if (miInputMode === 'salary') {
-          const gpp = parseFloat(grossPerPeriod);
-          if (gpp > 0) miBase = Math.round(gpp * FREQUENCY_MULTIPLIERS[payFrequency]);
-        } else {
-          const rate = parseFloat(hourlyRate);
-          const hrs = parseFloat(hoursPerWeek);
-          if (rate > 0 && hrs > 0) miBase = Math.round(rate * hrs * 4.33);
-        }
-        if (miBase == null) return null;
-        return Math.round(miBase * (clampedPct / 100));
-      }
-      return Math.round(baseMI * (clampedPct / 100));
-    }
-
-    switch (method) {
-      case 'mi': {
-        if (miInputMode === 'salary') {
-          const gpp = parseFloat(grossPerPeriod);
-          if (!gpp || gpp <= 0) return null;
-          return Math.round(gpp * FREQUENCY_MULTIPLIERS[payFrequency]);
-        } else {
-          const rate = parseFloat(hourlyRate);
-          const hrs = parseFloat(hoursPerWeek);
-          if (!rate || !hrs || rate <= 0 || hrs <= 0) return null;
-          return Math.round(rate * hrs * 4.33);
-        }
-      }
-      case 'ytd': {
-        const gross = parseFloat(ytdGross);
-        const months = parseInt(ytdMonths);
-        if (!gross || !months || months < 1) return null;
-        return Math.round(gross / months);
-      }
-      case 'lower_of': {
-        const miVal = getMiBase();
-        const ytdGrossVal = parseFloat(ytdGross);
-        const ytdMonthsVal = parseInt(ytdMonths);
-        const ytdVal = ytdGrossVal > 0 && ytdMonthsVal >= 1 ? Math.round(ytdGrossVal / ytdMonthsVal) : null;
-        if (miVal != null && ytdVal != null) return Math.min(miVal, ytdVal);
-        // If only one is available, use that one
-        if (miVal != null) return miVal;
-        if (ytdVal != null) return ytdVal;
-        return null;
-      }
-      case 'mi_plus_10': {
-        const miVal = getMiBase();
-        return miVal != null ? Math.round(miVal * 1.10) : null;
-      }
-      case 'mi_plus_20': {
-        const miVal = getMiBase();
-        return miVal != null ? Math.round(miVal * 1.20) : null;
-      }
-      case 'manual': {
-        const amt = parseFloat(manualAmount);
-        return amt > 0 ? amt : null;
-      }
-      default:
-        return baseMI;
-    }
-  }, [method, baseMI, ytdGross, ytdMonths, manualAmount, isBenefitType, benefitPercent, miInputMode, grossPerPeriod, payFrequency, hourlyRate, hoursPerWeek]);
-
-  function getMiBase(): number | null {
-    if (miInputMode === 'salary') {
-      const gpp = parseFloat(grossPerPeriod);
-      return gpp > 0 ? Math.round(gpp * FREQUENCY_MULTIPLIERS[payFrequency]) : null;
-    }
-    const rate = parseFloat(hourlyRate);
-    const hrs = parseFloat(hoursPerWeek);
-    return rate > 0 && hrs > 0 ? Math.round(rate * hrs * 4.33) : null;
-  }
-
-  const tipAmount = useMemo(() => {
-    if (isBenefitType) return null;
-    const miVal = getMiBase();
-    if (miVal == null) return null;
-    if (method === 'mi_plus_10') return Math.round(miVal * 0.10);
-    if (method === 'mi_plus_20') return Math.round(miVal * 0.20);
-    return null;
-  }, [method, isBenefitType, miInputMode, grossPerPeriod, payFrequency, hourlyRate, hoursPerWeek]);
-
-  const isBusinessType = sourceType === 'self_employed' || sourceType === 'contractor';
+  const availableMethods = benefit ? CALC_METHODS.filter((m) => ['mi', 'ytd', 'lower_of', 'manual'].includes(m.value)) : CALC_METHODS;
+  const showMi = method === 'mi' || method === 'mi_plus_10' || method === 'mi_plus_20' || method === 'lower_of';
+  const showYtd = method === 'ytd' || method === 'lower_of';
+  const id = (k: string) => `calc-${sourceId}-${k}`;
+  const canApply = result != null && (method !== 'manual' || manualReason.trim().length > 0);
 
   const handleApply = async () => {
     if (method === 'manual' && !manualReason.trim()) {
-      toast({ title: 'Manual override requires a reason', variant: 'destructive' });
+      toast({ title: 'A manual override needs a reason', variant: 'destructive' });
       return;
     }
-    if (method === 'ytd' && (!parseFloat(ytdGross) || !parseInt(ytdMonths) || parseInt(ytdMonths) < 1)) {
-      toast({ title: 'YTD requires valid gross amount and months', variant: 'destructive' });
+    if (result == null) {
+      toast({ title: 'Enter the pay figures first', variant: 'destructive' });
       return;
     }
-    if ((method === 'mi' || method === 'mi_plus_10' || method === 'mi_plus_20') && computedResult == null) {
-      toast({ title: 'Enter pay stub data to calculate income', variant: 'destructive' });
-      return;
-    }
-
     setSaving(true);
     try {
-      const benefitPct = isBenefitType && method !== 'manual' ? parseInt(benefitPercent) || 50 : null;
-      const tipPct = method === 'mi_plus_10' ? 10 : method === 'mi_plus_20' ? 20 : null;
+      const pct = benefit && method !== 'manual' ? Math.round(Math.max(0, Math.min(100, inputs.benefitPercent ?? DEFAULT_BENEFIT_PERCENT))) : null;
+      const tips = method === 'mi_plus_10' ? 10 : method === 'mi_plus_20' ? 20 : null;
+      const { data: current } = await supabase.from('income_sources').select('flag_reasons, verification_status').eq('id', sourceId).maybeSingle();
+      let flags: string[] = (current?.flag_reasons as string[] | null) ?? [];
+      const variance = statedMonthlyIncome > 0 ? Math.abs(result - statedMonthlyIncome) / statedMonthlyIncome : 0;
+      if (variance > 0.15 && !flags.includes('Income variance > 15%')) flags = [...flags, 'Income variance > 15%'];
+      flags = flags.filter((f) => !f.startsWith(GAP_FLAG));
+      if (gap != null && gap > 20) flags = [...flags, `${GAP_FLAG} ${gap}%`];
 
-      const updates: Record<string, unknown> = {
+      await updateIncomeSource(sourceId, {
         calc_method: method,
-        tip_percentage: isBenefitType ? benefitPct : tipPct,
-        calculated_monthly_income: computedResult,
-        benefit_cap_applied: isBenefitType && method !== 'manual',
+        tip_percentage: benefit ? pct : tips,
+        calculated_monthly_income: result,
+        benefit_cap_applied: benefit && method !== 'manual',
         pay_frequency: payFrequency,
-        hourly_rate: miInputMode === 'hourly' ? (parseFloat(hourlyRate) || null) : null,
-        hours_per_week: miInputMode === 'hourly' ? (parseFloat(hoursPerWeek) || null) : null,
-        updated_at: new Date().toISOString(),
-      };
-
-      if (method === 'ytd' || method === 'lower_of') {
-        updates.ytd_gross = parseFloat(ytdGross) || null;
-        updates.ytd_months = parseInt(ytdMonths) || null;
-      }
-
-      if (method === 'manual') {
-        updates.manual_override_amount = parseFloat(manualAmount);
-        updates.manual_override_reason = manualReason.trim();
-      }
-
-      const { error } = await supabase
-        .from('income_sources')
-        .update(updates)
-        .eq('id', sourceId);
-
-      if (error) throw error;
-
-      const methodLabel = CALC_METHODS.find(m => m.value === method)?.short ?? method;
-
-      // Timeline entry for calculation applied
-      const { data: { user } } = await supabase.auth.getUser();
-      await supabase.from('deal_timeline').insert({
-        deal_id: dealId,
-        type: 'note_added' as any,
-        description: `Income calculation applied: ${methodLabel} → $${computedResult?.toLocaleString()}/mo`,
-        created_by: user?.id ?? null,
-        metadata: {
-          action: 'income_calculation',
-          method,
-          mi_input_mode: showMiInputs ? miInputMode : null,
-          calculated_amount: computedResult,
-          stated_amount: statedMonthlyIncome,
-        },
+        gross_per_period: miMode === 'salary' && Number.isFinite(inputs.grossPerPeriod) ? inputs.grossPerPeriod : null,
+        hourly_rate: miMode === 'hourly' && Number.isFinite(inputs.hourlyRate) ? inputs.hourlyRate : null,
+        hours_per_week: miMode === 'hourly' && Number.isFinite(inputs.hoursPerWeek) ? inputs.hoursPerWeek : null,
+        ytd_gross: Number.isFinite(inputs.ytdGross) ? inputs.ytdGross : null,
+        ytd_months: Number.isFinite(inputs.ytdMonths) ? inputs.ytdMonths : null,
+        manual_override_amount: method === 'manual' ? result : null,
+        manual_override_reason: method === 'manual' ? manualReason.trim() : null,
+        flag_reasons: flags,
+        ...(gap != null && gap > 20 && current?.verification_status === 'unverified' ? { verification_status: 'flagged' } : {}),
+        // an analyst's figure is final: auto-fill must not overwrite it
+        calc_locked: true,
       });
 
-      // Variance check (stated vs calculated)
-      if (computedResult != null && statedMonthlyIncome > 0) {
-        const variance = Math.abs(computedResult - statedMonthlyIncome) / statedMonthlyIncome;
-        if (variance > 0.15) {
-          const varianceFlag = 'Income variance > 15%';
-          const { data: current } = await supabase
-            .from('income_sources')
-            .select('flag_reasons')
-            .eq('id', sourceId)
-            .single();
-
-          const existing: string[] = (current?.flag_reasons as string[]) ?? [];
-          if (!existing.includes(varianceFlag)) {
-            await supabase
-              .from('income_sources')
-              .update({ flag_reasons: [...existing, varianceFlag] })
-              .eq('id', sourceId);
-          }
-
-          // Timeline entry for variance flag
-          await supabase.from('deal_timeline').insert({
-            deal_id: dealId,
-            type: 'note_added' as any,
-            description: `⚠️ Income variance flagged: ${(variance * 100).toFixed(0)}% difference (calculated $${computedResult.toLocaleString()} vs stated $${statedMonthlyIncome.toLocaleString()})`,
-            created_by: user?.id ?? null,
-            metadata: {
-              action: 'income_variance_flag',
-              variance_percent: Math.round(variance * 100),
-              calculated_amount: computedResult,
-              stated_amount: statedMonthlyIncome,
-            },
-          });
-
-          toast({
-            title: `Calculation applied: ${methodLabel}`,
-            description: `⚠️ ${(variance * 100).toFixed(0)}% variance detected between calculated and stated income`,
-          });
-        } else {
-          toast({ title: `Calculation applied: ${methodLabel}`, description: 'Variance within acceptable range ✓' });
-        }
-      } else {
-        toast({ title: `Calculation applied: ${methodLabel}` });
-      }
-
-      // MI vs YTD cross-check auto-flag
-      {
-        let crossMi: number | null = null;
-        if (miInputMode === 'salary') {
-          const gpp = parseFloat(grossPerPeriod);
-          if (gpp > 0) crossMi = Math.round(gpp * FREQUENCY_MULTIPLIERS[payFrequency]);
-        } else {
-          const rate = parseFloat(hourlyRate);
-          const hrs = parseFloat(hoursPerWeek);
-          if (rate > 0 && hrs > 0) crossMi = Math.round(rate * hrs * 4.33);
-        }
-        const crossYtdG = parseFloat(ytdGross);
-        const crossYtdM = parseInt(ytdMonths);
-        const crossYtd = crossYtdG > 0 && crossYtdM >= 1 ? Math.round(crossYtdG / crossYtdM) : null;
-
-        if (crossMi != null && crossYtd != null) {
-          const crossAvg = (crossMi + crossYtd) / 2;
-          const crossDiff = Math.abs(crossMi - crossYtd);
-          const crossPct = crossAvg > 0 ? Math.round((crossDiff / crossAvg) * 100) : 0;
-
-          if (crossPct > 20) {
-            const miHigher = crossMi > crossYtd;
-            // Build diagnosis reasons
-            const diagReasons: string[] = [];
-            if (sourceType === 'seasonal') {
-              diagReasons.push(miHigher ? 'Seasonal worker — YTD includes off-season months' : 'Seasonal worker — current stub from off-season period');
-            }
-            if (sourceType === 'education') {
-              const cm = contractMonthsProp;
-              diagReasons.push(cm && cm < 12
-                ? `Education employee on ${cm}-month contract; YTD divides by ${crossYtdM} calendar months`
-                : 'Education employee — academic vs calendar year mismatch');
-            }
-            if (sourceType === 'part_time') {
-              diagReasons.push('Hourly worker — variable hours between pay periods');
-            }
-            if (sourceType === 'self_employed' || sourceType === 'contractor') {
-              diagReasons.push('Self-employed/contractor — irregular income patterns');
-            }
-            if (crossYtdM <= 2) {
-              diagReasons.push(`Only ${crossYtdM} month${crossYtdM === 1 ? '' : 's'} of YTD data — possible recent hire`);
-            }
-            if (miHigher && payFrequency === 'biweekly') {
-              diagReasons.push('Biweekly pay — possible 3-check month on current stub');
-            }
-            if (diagReasons.length === 0) {
-              diagReasons.push(miHigher
-                ? 'Current stub may include overtime, bonuses, or commissions'
-                : 'Prior months may have included higher pay — recent pay change possible');
-            }
-
-            const flagText = `MI vs YTD gap: ${crossPct}%`;
-            const { data: flagCurrent } = await supabase
-              .from('income_sources')
-              .select('flag_reasons, verification_status')
-              .eq('id', sourceId)
-              .single();
-
-            const existingFlags: string[] = (flagCurrent?.flag_reasons as string[]) ?? [];
-            // Remove any old MI vs YTD gap flag before adding the current one
-            const cleanedFlags = existingFlags.filter(f => !f.startsWith('MI vs YTD gap:'));
-            const newFlags = [...cleanedFlags, flagText];
-
-            const statusUpdate: Record<string, unknown> = { flag_reasons: newFlags };
-            if (flagCurrent?.verification_status === 'unverified') {
-              statusUpdate.verification_status = 'flagged';
-            }
-
-            await supabase
-              .from('income_sources')
-              .update(statusUpdate)
-              .eq('id', sourceId);
-
-            // Timeline entry with diagnosis
-            const diagText = diagReasons.map(r => `• ${r}`).join('\n');
-            await supabase.from('deal_timeline').insert({
-              deal_id: dealId,
-              type: 'note_added' as any,
-              description: `🔍 MI vs YTD cross-check flagged: ${crossPct}% gap (MI $${crossMi.toLocaleString()}/mo vs YTD $${crossYtd.toLocaleString()}/mo)\n\nPossible reasons:\n${diagText}`,
-              created_by: user?.id ?? null,
-              metadata: {
-                action: 'mi_ytd_cross_check_flag',
-                mi_value: crossMi,
-                ytd_value: crossYtd,
-                gap_percent: crossPct,
-                mi_higher: miHigher,
-                diagnosis_reasons: diagReasons,
-                source_type: sourceType,
-              },
-            });
-          } else {
-            // Gap is acceptable — remove any old MI vs YTD flag if present
-            const { data: flagCurrent } = await supabase
-              .from('income_sources')
-              .select('flag_reasons')
-              .eq('id', sourceId)
-              .single();
-
-            const existingFlags: string[] = (flagCurrent?.flag_reasons as string[]) ?? [];
-            const hadGapFlag = existingFlags.some(f => f.startsWith('MI vs YTD gap:'));
-            if (hadGapFlag) {
-              await supabase
-                .from('income_sources')
-                .update({ flag_reasons: existingFlags.filter(f => !f.startsWith('MI vs YTD gap:')) })
-                .eq('id', sourceId);
-            }
-          }
-        }
-      }
-
+      const label = CALC_METHODS.find((m) => m.value === method)?.short ?? method;
+      await addTimelineNote(dealId, `Income calculation applied: ${label} → ${formatMoney(result, { cents: true })}/mo`, {
+        action: 'income_calculation', method, calculated_amount: result, stated_amount: statedMonthlyIncome,
+        ...(gap != null ? { mi_value: mi, ytd_value: ytd, gap_percent: gap } : {}),
+        ...(diagnosis && gap != null && gap > 20 ? { diagnosis_reasons: diagnosis.reasons } : {}),
+      });
+      toast({
+        title: `Calculation applied: ${label}`,
+        description: variance > 0.15 ? `${Math.round(variance * 100)}% different from the stated income` : 'Within 15% of the stated income',
+      });
       onUpdated();
-    } catch (err: any) {
-      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    } catch (err) {
+      toast({ title: 'Could not apply the calculation', description: errorMessage(err), variant: 'destructive' });
     } finally {
       setSaving(false);
     }
   };
 
-  const handleRequestDocs = async () => {
-    const docType = isBusinessType ? '12 months bank statements' : '3 months bank statements';
+  const requestDocs = async (docs: string[], reason: 'missed_days' | 'gap') => {
     setSaving(true);
     try {
-      const { error } = await supabase
-        .from('income_sources')
-        .update({
-          missed_days_flag: true,
-          additional_docs_requested: [docType],
-          verification_status: 'needs_review' as any,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', sourceId);
-
-      if (error) throw error;
-      // also ask the dealer for them in their portal
-      const { error: reqErr } = await supabase.rpc('request_document', {
-        _deal_id: dealId, _doc_type: 'bank_statement', _message: docType,
-      });
-      toast({ title: `Requested: ${docType}`, description: reqErr ? undefined : 'The dealer has been asked in their portal.' });
+      const all = [...new Set([...(additionalDocsRequested ?? []), ...docs])];
+      await updateIncomeSource(sourceId, reason === 'missed_days'
+        ? { missed_days_flag: true, additional_docs_requested: all, verification_status: 'needs_review' }
+        : { additional_docs_requested: all });
+      const { error } = await supabase.rpc('request_document', { _deal_id: dealId, _doc_type: 'bank_statement', _message: docs.join(', ') });
+      await addTimelineNote(dealId, `Documents requested for income: ${docs.join(', ')}`, { action: 'income_doc_request', requested_docs: docs, gap_percent: gap });
+      toast({ title: 'Documents requested', description: error ? docs.join(', ') : 'The dealer has been asked in their portal.' });
       onUpdated();
-    } catch (err: any) {
-      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    } catch (err) {
+      toast({ title: 'Could not request the documents', description: errorMessage(err), variant: 'destructive' });
     } finally {
       setSaving(false);
     }
   };
-
-  const canApply = method === 'manual'
-    ? (parseFloat(manualAmount) > 0 && manualReason.trim().length > 0)
-    : method === 'ytd'
-      ? (parseFloat(ytdGross) > 0 && parseInt(ytdMonths) >= 1)
-      : method === 'lower_of'
-        ? computedResult != null
-        : computedResult != null;
 
   if (vehicleForWork) {
     return (
-      <div className="space-y-3 p-3 rounded-lg border border-destructive bg-destructive/5">
-        <div className="flex items-center gap-2 text-sm font-medium text-destructive">
-          <Ban className="h-4 w-4" />
-          INELIGIBLE — Vehicle Used for Rideshare/Commercial Work
-        </div>
-        <p className="text-xs text-muted-foreground">
-          This income source has been flagged because the applicant uses the financed vehicle for rideshare or commercial work. This deal is not eligible per policy.
-        </p>
+      <div className="space-y-2 p-3 rounded-lg border border-destructive bg-destructive/5">
+        <div className="flex items-center gap-2 text-sm font-medium text-destructive"><Ban className="h-4 w-4" aria-hidden /> Not eligible — vehicle used for rideshare/commercial work</div>
+        <p className="text-xs text-muted-foreground">The applicant uses the financed vehicle for rideshare or commercial work, which policy does not allow.</p>
       </div>
     );
   }
 
-  const showMiInputs = method === 'mi' || method === 'mi_plus_10' || method === 'mi_plus_20' || method === 'lower_of';
-  const showYtdInputs = method === 'ytd' || method === 'lower_of';
+  const hl = (field: string) => (highlighted === field ? 'animate-fill-highlight' : '');
+  const already = additionalDocsRequested ?? [];
 
   return (
     <div className="space-y-3 p-3 rounded-lg border border-border bg-muted/30">
-      {/* Header */}
-      <div className="flex items-center gap-2 text-sm font-medium">
-        <Calculator className="h-4 w-4 text-primary" />
-        Income Calculator
-        {isBenefitType && (
-          <Badge variant="outline" className="text-xs text-warning border-warning/30 ml-auto">
-            <ShieldAlert className="h-3 w-3 mr-1" />
-            Benefits Review
+      <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
+        <Calculator className="h-4 w-4 text-primary" aria-hidden /> Income calculator
+        {calcLocked && (
+          <Badge variant="outline" className="text-xs gap-1" title="Auto-fill won't change an applied figure">
+            <Lock className="h-3 w-3" aria-hidden /> Applied by an analyst
           </Badge>
+        )}
+        {benefit && (
+          <Badge variant="outline" className="text-xs text-warning border-warning/30 ml-auto"><ShieldAlert className="h-3 w-3 mr-1" aria-hidden /> Benefits review</Badge>
         )}
       </div>
 
-      {/* Benefit percentage input */}
-      {isBenefitType && method !== 'manual' && (
+      {benefit && method !== 'manual' && (
         <div className="space-y-1.5">
           <p className="text-xs text-info bg-info/10 rounded-md px-2 py-1.5 border border-info/20">
-            Benefits income requires analyst review. Set the percentage of stated benefits to count toward qualifying income.
+            Benefit income: only a share counts toward qualifying income{method === 'lower_of' ? ' (applied to the lower of MI and YTD)' : ''}.
           </p>
           <div className="flex items-center gap-2">
-            <Label className="text-xs whitespace-nowrap">Count %</Label>
-            <Input
-              type="number"
-              value={benefitPercent}
-              onChange={e => setBenefitPercent(e.target.value)}
-              min="0"
-              max="100"
-              className="h-8 text-xs w-20"
-            />
-            <span className="text-xs text-muted-foreground">of stated benefits</span>
+            <Label htmlFor={id('benefit')} className="text-xs whitespace-nowrap">Share that counts (%)</Label>
+            <Input id={id('benefit')} inputMode="decimal" value={benefitPercent} onChange={(e) => setBenefitPercent(e.target.value)} className="h-8 text-xs w-20" />
           </div>
         </div>
       )}
 
-      {/* Method selector */}
-      <div className="flex flex-wrap gap-1.5">
-        {availableMethods.map(m => (
-          <button
-            key={m.value}
-            onClick={() => setMethod(m.value)}
-            className={cn(
-              'px-2.5 py-1 text-xs rounded-md border transition-colors',
-              method === m.value
-                ? 'bg-primary text-primary-foreground border-primary'
-                : 'bg-background border-border text-muted-foreground hover:text-foreground hover:border-foreground/30'
-            )}
-          >
-            {m.short}
+      <div className="flex flex-wrap gap-1.5" role="group" aria-label="Calculation method">
+        {availableMethods.map((m) => (
+          <button key={m.value} type="button" onClick={() => setMethod(m.value)} aria-pressed={method === m.value} title={m.label}
+            className={cn('px-2.5 py-1 text-xs rounded-md border transition-colors',
+              method === m.value ? 'bg-primary text-primary-foreground border-primary' : 'bg-background border-border text-muted-foreground hover:text-foreground hover:border-foreground/30')}>
+            {m.short}<span className="sr-only"> — {m.label}</span>
           </button>
         ))}
       </div>
 
-      {/* MI sub-mode inputs */}
-      {showMiInputs && (
+      {showMi && (
         <div className="space-y-2">
-          {/* Salary / Hourly toggle */}
-          <div className="flex gap-1">
-            <button
-              onClick={() => setMiInputMode('salary')}
-              className={cn(
-                'px-2 py-0.5 text-xs rounded border transition-colors',
-                miInputMode === 'salary'
-                  ? 'bg-secondary text-secondary-foreground border-border'
-                  : 'bg-background border-border text-muted-foreground hover:text-foreground'
-              )}
-            >
-              Salary
-            </button>
-            <button
-              onClick={() => setMiInputMode('hourly')}
-              className={cn(
-                'px-2 py-0.5 text-xs rounded border transition-colors',
-                miInputMode === 'hourly'
-                  ? 'bg-secondary text-secondary-foreground border-border'
-                  : 'bg-background border-border text-muted-foreground hover:text-foreground'
-              )}
-            >
-              Hourly
-            </button>
+          <div className="flex gap-1" role="group" aria-label="Pay basis">
+            {(['salary', 'hourly'] as const).map((mode) => (
+              <button key={mode} type="button" onClick={() => setMiMode(mode)} aria-pressed={miMode === mode}
+                className={cn('px-2 py-0.5 text-xs rounded border transition-colors',
+                  miMode === mode ? 'bg-secondary text-secondary-foreground border-border' : 'bg-background border-border text-muted-foreground hover:text-foreground')}>
+                {mode === 'salary' ? 'Pay per period' : 'Hourly'}
+              </button>
+            ))}
           </div>
-
-          {miInputMode === 'salary' ? (
-            <div className="grid grid-cols-2 gap-2">
+          {miMode === 'salary' ? (
+            <div className="grid grid-cols-1 min-[380px]:grid-cols-2 gap-2">
               <div className="space-y-1">
-                <Label className="text-xs">Gross Per Period ($)</Label>
-                <DroppableInput
-                  acceptField="grossPerPeriod"
-                  type="number"
-                  value={grossPerPeriod}
-                  onChange={e => setGrossPerPeriod(e.target.value)}
-                  onDropValue={v => setGrossPerPeriod(v)}
-                  onDropField={handleDropFieldMethod}
-                  placeholder="2100"
-                  className={cn('h-8 text-xs', highlightedField === 'grossPerPeriod' && 'animate-fill-highlight')}
-                />
+                <Label htmlFor={id('gross')} className="text-xs">Gross per period ($)</Label>
+                <DroppableInput id={id('gross')} acceptField="grossPerPeriod" inputMode="decimal" value={grossPerPeriod}
+                  onChange={(e) => setGrossPerPeriod(e.target.value)} onDropValue={(v) => fillField('grossPerPeriod', v)}
+                  placeholder="2100" className={cn('h-8 text-xs', hl('grossPerPeriod'))} />
               </div>
               <div className="space-y-1">
-                <Label className="text-xs">Pay Frequency</Label>
+                <Label htmlFor={id('freq')} className="text-xs">Pay frequency</Label>
                 <Select value={payFrequency} onValueChange={(v) => setPayFrequency(v as PayFrequency)}>
-                  <SelectTrigger className="h-8 text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(Object.keys(FREQUENCY_LABELS) as PayFrequency[]).map(f => (
-                      <SelectItem key={f} value={f} className="text-xs">{FREQUENCY_LABELS[f]}</SelectItem>
-                    ))}
-                  </SelectContent>
+                  <SelectTrigger id={id('freq')} className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>{PAY_FREQUENCIES.map((f) => <SelectItem key={f} value={f} className="text-xs">{FREQUENCY_LABELS[f]}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
-              {parseFloat(grossPerPeriod) > 0 && (
-                <p className="col-span-2 text-xs text-muted-foreground">
-                  ${parseFloat(grossPerPeriod).toLocaleString()} {FREQUENCY_LABELS[payFrequency].toLowerCase()} × {FREQUENCY_MULTIPLIERS[payFrequency]} = <span className="font-medium text-foreground">${computedResult?.toLocaleString()}/mo</span>
+              {mi != null && (
+                <p className="col-span-full text-xs text-muted-foreground">
+                  {formatMoney(inputs.grossPerPeriod, { cents: true })} {FREQUENCY_FORMULA[payFrequency]} = <span className="font-medium text-foreground">{formatMoney(mi, { cents: true })}/mo</span>
                 </p>
               )}
             </div>
           ) : (
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 min-[380px]:grid-cols-2 gap-2">
               <div className="space-y-1">
-                <Label className="text-xs">Hourly Rate ($)</Label>
-                <DroppableInput
-                  acceptField="hourlyRate"
-                  type="number"
-                  value={hourlyRate}
-                  onChange={e => setHourlyRate(e.target.value)}
-                  onDropValue={v => setHourlyRate(v)}
-                  onDropField={handleDropFieldMethod}
-                  placeholder="18.50"
-                  className={cn('h-8 text-xs', highlightedField === 'hourlyRate' && 'animate-fill-highlight')}
-                />
+                <Label htmlFor={id('rate')} className="text-xs">Hourly rate ($)</Label>
+                <DroppableInput id={id('rate')} acceptField="hourlyRate" inputMode="decimal" value={hourlyRate}
+                  onChange={(e) => setHourlyRate(e.target.value)} onDropValue={(v) => fillField('hourlyRate', v)}
+                  placeholder="18.50" className={cn('h-8 text-xs', hl('hourlyRate'))} />
               </div>
               <div className="space-y-1">
-                <Label className="text-xs">Hours / Week</Label>
-                <DroppableInput
-                  acceptField="hoursPerWeek"
-                  type="number"
-                  value={hoursPerWeek}
-                  onChange={e => setHoursPerWeek(e.target.value)}
-                  onDropValue={v => setHoursPerWeek(v)}
-                  onDropField={handleDropFieldMethod}
-                  placeholder="40"
-                  className={cn('h-8 text-xs', highlightedField === 'hoursPerWeek' && 'animate-fill-highlight')}
-                />
+                <Label htmlFor={id('hours')} className="text-xs">Hours per week</Label>
+                <DroppableInput id={id('hours')} acceptField="hoursPerWeek" inputMode="decimal" value={hoursPerWeek}
+                  onChange={(e) => setHoursPerWeek(e.target.value)} onDropValue={(v) => fillField('hoursPerWeek', v)}
+                  placeholder="40" className={cn('h-8 text-xs', hl('hoursPerWeek'))} />
               </div>
-              {parseFloat(hourlyRate) > 0 && parseFloat(hoursPerWeek) > 0 && (
-                <p className="col-span-2 text-xs text-muted-foreground">
-                  ${parseFloat(hourlyRate).toLocaleString()}/hr × {parseFloat(hoursPerWeek)} hrs/wk × 4.33 = <span className="font-medium text-foreground">${computedResult?.toLocaleString()}/mo</span>
+              {mi != null && (
+                <p className="col-span-full text-xs text-muted-foreground">
+                  {formatMoney(inputs.hourlyRate, { cents: true })}/hr × {inputs.hoursPerWeek} hrs × 52 ÷ 12 = <span className="font-medium text-foreground">{formatMoney(mi, { cents: true })}/mo</span>
                 </p>
               )}
             </div>
@@ -663,405 +307,121 @@ export function IncomeCalculator({
         </div>
       )}
 
-      {/* Stated income reference */}
-      <div className="text-xs text-muted-foreground">
-        Stated Income: <span className="font-medium text-foreground">${statedMonthlyIncome.toLocaleString()}/mo</span>
-      </div>
+      <p className="text-xs text-muted-foreground">Stated income: <span className="font-medium text-foreground">{formatMoney(statedMonthlyIncome)}/mo</span></p>
 
-      {/* YTD inputs */}
-      {showYtdInputs && (
-        <div className="grid grid-cols-2 gap-2">
+      {showYtd && (
+        <div className="grid grid-cols-1 min-[380px]:grid-cols-2 gap-2">
           <div className="space-y-1">
-            <Label className="text-xs">YTD Gross ($)</Label>
-            <DroppableInput
-              acceptField="ytdGross"
-              type="number"
-              value={ytdGross}
-              onChange={e => setYtdGross(e.target.value)}
-              onDropValue={v => setYtdGross(v)}
-              onDropField={handleDropFieldMethod}
-              placeholder="25200"
-              className={cn('h-8 text-xs', highlightedField === 'ytdGross' && 'animate-fill-highlight')}
-            />
+            <Label htmlFor={id('ytd')} className="text-xs">YTD gross ($)</Label>
+            <DroppableInput id={id('ytd')} acceptField="ytdGross" inputMode="decimal" value={ytdGross}
+              onChange={(e) => setYtdGross(e.target.value)} onDropValue={(v) => fillField('ytdGross', v)}
+              placeholder="25200" className={cn('h-8 text-xs', hl('ytdGross'))} />
           </div>
           <div className="space-y-1">
-            <Label className="text-xs">Months Elapsed</Label>
-            <DroppableInput
-              acceptField="ytdMonths"
-              type="number"
-              value={ytdMonths}
-              onChange={e => setYtdMonths(e.target.value)}
-              onDropValue={v => setYtdMonths(v)}
-              onDropField={handleDropFieldMethod}
-              placeholder="6"
-              min="1"
-              className={cn('h-8 text-xs', highlightedField === 'ytdMonths' && 'animate-fill-highlight')}
-            />
+            <Label htmlFor={id('months')} className="text-xs">Months covered</Label>
+            <DroppableInput id={id('months')} acceptField="ytdMonths" inputMode="decimal" value={ytdMonths}
+              onChange={(e) => setYtdMonths(e.target.value)} onDropValue={(v) => fillField('ytdMonths', v)}
+              placeholder="8.8" className={cn('h-8 text-xs', hl('ytdMonths'))} />
           </div>
-          {parseFloat(ytdGross) > 0 && parseInt(ytdMonths) >= 1 && (
-            <p className="col-span-2 text-xs text-muted-foreground">
-              ${parseFloat(ytdGross).toLocaleString()} / {ytdMonths} mo = <span className="font-medium text-foreground">${computedResult?.toLocaleString()}/mo</span>
+          {ytd != null && (
+            <p className="col-span-full text-xs text-muted-foreground">
+              {formatMoney(inputs.ytdGross, { cents: true })} ÷ {inputs.ytdMonths} months = <span className="font-medium text-foreground">{formatMoney(ytd, { cents: true })}/mo</span>
             </p>
           )}
         </div>
       )}
 
-      {/* Tip display */}
-      {tipAmount != null && (
-        <div className="text-xs text-muted-foreground">
-          Tip Adjustment: <span className="font-medium text-foreground">+{method === 'mi_plus_10' ? '10' : '20'}% = ${tipAmount.toLocaleString()}</span>
-        </div>
+      {(method === 'mi_plus_10' || method === 'mi_plus_20') && mi != null && result != null && (
+        <p className="text-xs text-muted-foreground">Tips: <span className="font-medium text-foreground">+{method === 'mi_plus_10' ? 10 : 20}% = {formatMoney(result - mi, { cents: true })}</span></p>
       )}
 
-      {/* Manual override */}
       {method === 'manual' && (
         <div className="space-y-2">
           <div className="space-y-1">
-            <Label className="text-xs">Override Amount ($/mo)</Label>
-            <DroppableInput
-              acceptField="manualAmount"
-              type="number"
-              value={manualAmount}
-              onChange={e => setManualAmount(e.target.value)}
-              onDropValue={v => setManualAmount(v)}
-              onDropField={handleDropFieldMethod}
-              placeholder="4500"
-              className={cn('h-8 text-xs', highlightedField === 'manualAmount' && 'animate-fill-highlight')}
-            />
+            <Label htmlFor={id('manual')} className="text-xs">Override amount ($/mo)</Label>
+            <DroppableInput id={id('manual')} acceptField="manualAmount" inputMode="decimal" value={manualAmount}
+              onChange={(e) => setManualAmount(e.target.value)} onDropValue={(v) => fillField('manualAmount', v)}
+              placeholder="4500" className={cn('h-8 text-xs', hl('manualAmount'))} />
           </div>
           <div className="space-y-1">
-            <Label className="text-xs">Reason (required)</Label>
-            <Textarea
-              value={manualReason}
-              onChange={e => setManualReason(e.target.value)}
-              placeholder="Explain why manual override is needed..."
-              className="text-xs min-h-[50px] resize-none"
-            />
+            <Label htmlFor={id('reason')} className="text-xs">Reason (required)</Label>
+            <Textarea id={id('reason')} value={manualReason} onChange={(e) => setManualReason(e.target.value)}
+              placeholder="Why the calculated figure doesn't apply…" className="text-xs min-h-[50px] resize-none" />
           </div>
         </div>
       )}
 
-      {/* MI vs YTD cross-check */}
-      {(() => {
-        // Compute MI value regardless of current method
-        let miValue: number | null = null;
-        if (miInputMode === 'salary') {
-          const gpp = parseFloat(grossPerPeriod);
-          if (gpp > 0) miValue = Math.round(gpp * FREQUENCY_MULTIPLIERS[payFrequency]);
-        } else {
-          const rate = parseFloat(hourlyRate);
-          const hrs = parseFloat(hoursPerWeek);
-          if (rate > 0 && hrs > 0) miValue = Math.round(rate * hrs * 4.33);
-        }
-        // Compute YTD value regardless of current method
-        const ytdG = parseFloat(ytdGross);
-        const ytdM = parseInt(ytdMonths);
-        const ytdValue = ytdG > 0 && ytdM >= 1 ? Math.round(ytdG / ytdM) : null;
-
-        if (miValue != null && ytdValue != null) {
-          const avg = (miValue + ytdValue) / 2;
-          const diff = Math.abs(miValue - ytdValue);
-          const pct = avg > 0 ? Math.round((diff / avg) * 100) : 0;
-          const isOk = pct <= 10;
-          const isWarn = pct > 10 && pct <= 20;
-          const miHigher = miValue > ytdValue;
-
-          // Build smart diagnosis reasons based on deal context
-          const reasons: string[] = [];
-          // Build recommended docs based on context
-          const recDocs: string[] = [];
-
-          if (!isOk) {
-            if (sourceType === 'seasonal') {
-              reasons.push(miHigher
-                ? 'Seasonal worker — YTD may include off-season months with reduced or zero pay, pulling the average down.'
-                : 'Seasonal worker — current pay stub may be from an off-season period; YTD includes peak-season earnings.');
-              recDocs.push('12 months bank statements', 'Prior year W-2');
-            }
-            if (sourceType === 'education') {
-              const cm = contractMonthsProp;
-              if (cm && cm < 12) {
-                reasons.push(`Education employee on a ${cm}-month contract. YTD divides annual earnings by ${ytdM} calendar months, but pay may only cover ${cm} working months.`);
-              } else {
-                reasons.push('Education employee — check if YTD months align with the academic calendar vs. calendar year.');
-              }
-              recDocs.push('Employment contract', 'Prior year W-2');
-            }
-            if (sourceType === 'part_time') {
-              reasons.push(miHigher
-                ? 'Hourly worker — current stub may reflect more hours than average. YTD captures periods with fewer hours.'
-                : 'Hourly worker — current stub may reflect reduced hours. YTD includes periods with more scheduled shifts.');
-              recDocs.push('3 months pay stubs', '3 months bank statements');
-            }
-            if (sourceType === 'self_employed' || sourceType === 'contractor') {
-              reasons.push('Self-employed/contractor income is often irregular. Compare against 12-month bank statement deposits for a more reliable average.');
-              recDocs.push('12 months bank statements', 'Most recent tax return', 'Profit & loss statement');
-            }
-            if (ytdM <= 2) {
-              reasons.push(`Only ${ytdM} month${ytdM === 1 ? '' : 's'} of YTD data — recent hire or new position. YTD average may not be stable yet.`);
-              if (!recDocs.includes('Offer letter / employment verification')) {
-                recDocs.push('Offer letter / employment verification');
-              }
-            }
-            if (miHigher && payFrequency === 'biweekly') {
-              reasons.push('Biweekly pay has 26 periods/year (not 24). Some months have 3 pay periods — the current stub may be from a 3-check month.');
-              if (recDocs.length === 0) recDocs.push('3 months pay stubs');
-            }
-            if (miHigher && reasons.length === 0) {
-              reasons.push('Current pay stub may include overtime, bonuses, or commissions not reflected in the YTD average.');
-            }
-            if (!miHigher && reasons.length === 0) {
-              reasons.push('YTD average is higher — prior months may have included overtime, bonuses, or a higher rate before a recent pay change.');
-            }
-            // Fallback docs
-            if (recDocs.length === 0) {
-              recDocs.push('3 months pay stubs', '3 months bank statements');
-            }
-          }
-
-          // Determine recommended calc method based on context
-          let recMethod: 'mi' | 'ytd' | null = null;
-          let recReason = '';
-
-          if (!isOk) {
-            if (sourceType === 'seasonal') {
-              // Seasonal: YTD smooths out peaks/valleys
-              recMethod = 'ytd';
-              recReason = 'YTD averages out seasonal fluctuations for a more stable figure.';
-            } else if (sourceType === 'education') {
-              // Education: MI is more accurate since contract months ≠ calendar months
-              recMethod = 'mi';
-              recReason = 'MI reflects actual contract pay; YTD divides by calendar months which dilutes the figure.';
-            } else if (sourceType === 'part_time') {
-              // Part-time: YTD smooths variable hours
-              recMethod = 'ytd';
-              recReason = 'YTD averages variable hours across pay periods for a more representative figure.';
-            } else if (sourceType === 'self_employed' || sourceType === 'contractor') {
-              // Self-employed: YTD or bank avg is more reliable
-              recMethod = 'ytd';
-              recReason = 'YTD provides a broader average for irregular income. Cross-reference with bank deposits.';
-            } else if (ytdM <= 2) {
-              // Recent hire: MI is more reliable with limited YTD data
-              recMethod = 'mi';
-              recReason = `Only ${ytdM} month${ytdM === 1 ? '' : 's'} of YTD data — MI from current pay stub is more reliable until more history accumulates.`;
-            } else if (miHigher && payFrequency === 'biweekly') {
-              // Biweekly 3-check month: YTD is more reliable
-              recMethod = 'ytd';
-              recReason = 'Current stub may be from a 3-check month. YTD normalizes biweekly pay across the year.';
-            } else {
-              // Default: use the lower value (conservative)
-              recMethod = miHigher ? 'ytd' : 'mi';
-              recReason = `Using the lower value ($${Math.min(miValue, ytdValue).toLocaleString()}/mo) is the more conservative approach.`;
-            }
-          }
-          // Check which docs are already requested
-          const alreadyRequested = additionalDocsRequested ?? [];
-          const newDocs = recDocs.filter(d => !alreadyRequested.includes(d));
-
-          const handleRequestCrossCheckDocs = async () => {
-            setSaving(true);
-            try {
-              const allDocs = [...new Set([...alreadyRequested, ...recDocs])];
-              const { error } = await supabase
-                .from('income_sources')
-                .update({
-                  additional_docs_requested: allDocs,
-                  updated_at: new Date().toISOString(),
-                })
-                .eq('id', sourceId);
-              if (error) throw error;
-
-              const { data: { user } } = await supabase.auth.getUser();
-              await supabase.from('deal_timeline').insert({
-                deal_id: dealId,
-                type: 'note_added' as any,
-                description: `📄 Documents requested to reconcile MI/YTD gap (${pct}%): ${recDocs.join(', ')}`,
-                created_by: user?.id ?? null,
-                metadata: {
-                  action: 'cross_check_doc_request',
-                  gap_percent: pct,
-                  requested_docs: recDocs,
-                  source_type: sourceType,
-                },
-              });
-
-              toast({ title: 'Documents requested', description: recDocs.join(', ') });
-              onUpdated();
-            } catch (err: any) {
-              toast({ title: 'Error', description: err.message, variant: 'destructive' });
-            } finally {
-              setSaving(false);
-            }
-          };
-
-          return (
-            <div className={cn(
-              'p-2.5 rounded-md border space-y-1.5',
-              isOk ? 'bg-success/5 border-success/20' : isWarn ? 'bg-warning/10 border-warning/30' : 'bg-destructive/5 border-destructive/20'
-            )}>
-              <div className="flex items-center justify-between text-xs font-medium">
-                <span className={isOk ? 'text-success' : isWarn ? 'text-warning' : 'text-destructive'}>
-                  {isOk ? '✓' : '⚠️'} MI vs YTD Cross-Check
-                </span>
-                <span className={cn('font-mono', isOk ? 'text-success' : isWarn ? 'text-warning' : 'text-destructive')}>
-                  {pct}% gap
-                </span>
-              </div>
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <div className="text-muted-foreground">
-                  MI: <span className="font-medium text-foreground">${miValue.toLocaleString()}/mo</span>
-                </div>
-                <div className="text-muted-foreground">
-                  YTD: <span className="font-medium text-foreground">${ytdValue.toLocaleString()}/mo</span>
-                </div>
-              </div>
-              {!isOk && reasons.length > 0 && (
-                <div className="space-y-1 pt-0.5">
-                  <p className="text-xs font-medium text-muted-foreground">Possible reasons:</p>
-                  {reasons.map((reason, i) => (
-                    <p key={i} className="text-xs text-muted-foreground flex gap-1.5">
-                      <span className="shrink-0 text-warning">•</span>
-                      {reason}
-                    </p>
-                  ))}
-                </div>
-              )}
-              {!isOk && recMethod && (
-                <div className="flex items-start gap-2 pt-1 border-t border-border/50">
-                  <TrendingUp className="h-3.5 w-3.5 shrink-0 text-primary mt-0.5" />
-                  <div className="flex-1 space-y-1.5">
-                    <p className="text-xs">
-                      <span className="font-medium text-primary">Recommended: {recMethod === 'mi' ? 'Monthly Income (MI)' : 'Year-to-Date (YTD)'}</span>
-                      <span className="text-muted-foreground"> — {recReason}</span>
-                    </p>
-                    {method !== recMethod && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-6 text-xs gap-1 border-primary/30 text-primary hover:bg-primary/10"
-                        onClick={() => setMethod(recMethod!)}
-                      >
-                        <TrendingUp className="h-3 w-3" />
-                        Switch to {recMethod === 'mi' ? 'MI' : 'YTD'}
-                      </Button>
-                    )}
-                    {method === recMethod && (
-                      <Badge variant="outline" className="text-xs bg-primary/10 text-primary border-primary/30">
-                        ✓ Currently using recommended method
-                      </Badge>
-                    )}
-                  </div>
-                </div>
-              )}
-              {!isOk && recDocs.length > 0 && (
-                <div className="space-y-1.5 pt-1 border-t border-border/50">
-                  <p className="text-xs font-medium text-muted-foreground flex items-center gap-1">
-                    <FileDown className="h-3 w-3" />
-                    Recommended documents:
-                  </p>
-                  <div className="flex flex-wrap gap-1">
-                    {recDocs.map((doc, i) => (
-                      <Badge key={i} variant="outline" className={cn('text-xs', alreadyRequested.includes(doc) ? 'bg-success/10 text-success border-success/30' : 'border-border')}>
-                        {alreadyRequested.includes(doc) ? '✓ ' : ''}{doc}
-                      </Badge>
-                    ))}
-                  </div>
-                  {newDocs.length > 0 ? (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-7 text-xs w-full gap-1"
-                      onClick={handleRequestCrossCheckDocs}
-                      disabled={saving}
-                    >
-                      {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <FileDown className="h-3 w-3" />}
-                      Request {newDocs.length} Document{newDocs.length !== 1 ? 's' : ''}
-                    </Button>
-                  ) : (
-                    <p className="text-xs text-success flex items-center gap-1">
-                      <FileText className="h-3 w-3" />
-                      All recommended documents already requested
-                    </p>
+      {gap != null && mi != null && ytd != null && (
+        <div className={cn('p-2.5 rounded-md border space-y-1.5',
+          gap <= 10 ? 'bg-success/5 border-success/20' : gap <= 20 ? 'bg-warning/10 border-warning/30' : 'bg-destructive/5 border-destructive/20')}>
+          <div className="flex items-center justify-between text-xs font-medium">
+            <span className={gap <= 10 ? 'text-success' : gap <= 20 ? 'text-warning' : 'text-destructive'}>MI vs YTD cross-check</span>
+            <span className={cn('font-mono', gap <= 10 ? 'text-success' : gap <= 20 ? 'text-warning' : 'text-destructive')}>{gap}% gap</span>
+          </div>
+          <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+            <span>MI: <span className="font-medium text-foreground">{formatMoney(mi, { cents: true })}/mo</span></span>
+            <span>YTD: <span className="font-medium text-foreground">{formatMoney(ytd, { cents: true })}/mo</span></span>
+          </div>
+          {diagnosis && (
+            <>
+              <ul className="space-y-1 pt-0.5 text-xs text-muted-foreground">
+                {diagnosis.reasons.map((r) => <li key={r} className="flex gap-1.5"><span className="text-warning" aria-hidden>•</span>{r}</li>)}
+              </ul>
+              <div className="flex items-start gap-2 pt-1 border-t border-border/50 text-xs">
+                <TrendingUp className="h-3.5 w-3.5 shrink-0 text-primary mt-0.5" aria-hidden />
+                <div className="flex-1 space-y-1.5">
+                  <p><span className="font-medium text-primary">Suggested: {diagnosis.method === 'mi' ? 'MI' : 'YTD'}</span><span className="text-muted-foreground"> — {diagnosis.why}</span></p>
+                  {method !== diagnosis.method && (
+                    <Button type="button" variant="outline" size="sm" className="h-6 text-xs" onClick={() => setMethod(diagnosis.method)}>Switch to {diagnosis.method === 'mi' ? 'MI' : 'YTD'}</Button>
                   )}
                 </div>
-              )}
-            </div>
-          );
-        }
-        return null;
-      })()}
-
-      {/* Computed result */}
-      {computedResult != null && (
-        <div className="p-2.5 rounded-md bg-primary/5 border border-primary/20 text-center space-y-1">
-          <p className="text-xs text-muted-foreground">
-            {method === 'lower_of' ? 'Conservative Estimate (Lower of MI/YTD)' : 'Calculated Total'}
-          </p>
-          <p className="text-lg font-bold text-primary">${computedResult.toLocaleString()}/mo</p>
-          {method === 'lower_of' && (() => {
-            const miVal = getMiBase();
-            const ytdGrossVal = parseFloat(ytdGross);
-            const ytdMonthsVal = parseInt(ytdMonths);
-            const ytdVal = ytdGrossVal > 0 && ytdMonthsVal >= 1 ? Math.round(ytdGrossVal / ytdMonthsVal) : null;
-            if (miVal != null && ytdVal != null) {
-              const picked = miVal <= ytdVal ? 'MI' : 'YTD';
-              return (
-                <div className="text-xs text-muted-foreground space-y-0.5">
-                  <p>MI: ${miVal.toLocaleString()} — YTD: ${ytdVal.toLocaleString()}</p>
-                  <p className="text-primary font-medium">Using {picked} (lower)</p>
+              </div>
+              <div className="space-y-1.5 pt-1 border-t border-border/50">
+                <p className="text-xs font-medium text-muted-foreground flex items-center gap-1"><FileDown className="h-3 w-3" aria-hidden /> Documents that settle it</p>
+                <div className="flex flex-wrap gap-1">
+                  {diagnosis.docs.map((d) => (
+                    <Badge key={d} variant="outline" className={cn('text-xs', already.includes(d) && 'bg-success/10 text-success border-success/30')}>{already.includes(d) ? '✓ ' : ''}{d}</Badge>
+                  ))}
                 </div>
-              );
-            }
-            return <p className="text-xs text-muted-foreground">Enter both MI and YTD values to compare</p>;
-          })()}
+                {diagnosis.docs.some((d) => !already.includes(d)) ? (
+                  <Button type="button" variant="outline" size="sm" className="h-7 text-xs w-full" disabled={saving}
+                    onClick={() => requestDocs(diagnosis.docs.filter((d) => !already.includes(d)), 'gap')}>
+                    {saving ? <Loader2 className="h-3 w-3 mr-1 animate-spin" aria-hidden /> : <FileDown className="h-3 w-3 mr-1" aria-hidden />}
+                    Request {diagnosis.docs.filter((d) => !already.includes(d)).length} document(s)
+                  </Button>
+                ) : <p className="text-xs text-success flex items-center gap-1"><FileText className="h-3 w-3" aria-hidden /> All already requested</p>}
+              </div>
+            </>
+          )}
         </div>
       )}
 
-      {/* Missed days alert */}
-      {missedDaysFlag && (
+      {result != null && (
+        <div className="p-2.5 rounded-md bg-primary/5 border border-primary/20 text-center space-y-1" aria-live="polite">
+          <p className="text-xs text-muted-foreground">{method === 'lower_of' ? 'Lower of MI and YTD' : 'Calculated income'}{benefit && method !== 'manual' ? ` × ${inputs.benefitPercent ?? DEFAULT_BENEFIT_PERCENT}%` : ''}</p>
+          <p className="text-lg font-bold text-primary">{formatMoney(result, { cents: true })}/mo</p>
+          {method === 'lower_of' && (mi == null || ytd == null) && <p className="text-xs text-muted-foreground">Enter both MI and YTD to compare.</p>}
+        </div>
+      )}
+
+      {missedDaysFlag ? (
         <div className="p-2.5 rounded-md bg-warning/10 border border-warning/30 space-y-2">
-          <div className="flex items-center gap-1.5 text-xs text-warning font-medium">
-            <AlertTriangle className="h-3.5 w-3.5" />
-            Possible missed work days detected
-          </div>
-          <p className="text-xs text-muted-foreground">
-            Request: {isBusinessType ? '12 months' : '3 months'} bank statements
-          </p>
-          {additionalDocsRequested.length > 0 && (
-            <div className="flex items-center gap-1 text-xs text-success">
-              <FileText className="h-3 w-3" />
-              Already requested: {additionalDocsRequested.join(', ')}
-            </div>
-          )}
-          {additionalDocsRequested.length === 0 && (
-            <Button variant="outline" size="sm" className="h-7 text-xs w-full" onClick={handleRequestDocs} disabled={saving}>
-              Request Documents
-            </Button>
-          )}
+          <p className="flex items-center gap-1.5 text-xs text-warning font-medium"><AlertTriangle className="h-3.5 w-3.5" aria-hidden /> Possible missed work days</p>
+          {already.length > 0
+            ? <p className="flex items-center gap-1 text-xs text-success"><FileText className="h-3 w-3" aria-hidden /> Requested: {already.join(', ')}</p>
+            : <Button type="button" variant="outline" size="sm" className="h-7 text-xs w-full" disabled={saving}
+                onClick={() => requestDocs([isBusiness ? '12 months bank statements' : '3 months bank statements'], 'missed_days')}>Request bank statements</Button>}
         </div>
-      )}
-
-      {/* Flag missed days manually */}
-      {!missedDaysFlag && (
-        <button
-          onClick={handleRequestDocs}
-          className="text-xs text-muted-foreground hover:text-warning transition-colors flex items-center gap-1"
-          disabled={saving}
-        >
-          <AlertTriangle className="h-3 w-3" />
-          Flag missed work days
+      ) : (
+        <button type="button" disabled={saving} className="text-xs text-muted-foreground hover:text-warning transition-colors flex items-center gap-1"
+          onClick={() => requestDocs([isBusiness ? '12 months bank statements' : '3 months bank statements'], 'missed_days')}>
+          <AlertTriangle className="h-3 w-3" aria-hidden /> Flag missed work days
         </button>
       )}
 
-      {/* Apply */}
-      <Button
-        size="sm"
-        className="w-full h-8 text-xs"
-        onClick={handleApply}
-        disabled={saving || !canApply}
-      >
-        {saving ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
-        {saving ? 'Applying...' : 'Apply Calculation'}
+      <Button type="button" size="sm" className="w-full h-8 text-xs" onClick={handleApply} disabled={saving || !canApply}>
+        {saving && <Loader2 className="h-3 w-3 animate-spin mr-1" aria-hidden />}
+        {saving ? 'Applying…' : method === 'manual' ? 'Save manual amount' : 'Apply calculation'}
       </Button>
     </div>
   );
