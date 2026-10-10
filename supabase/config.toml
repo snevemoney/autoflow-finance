@@ -2,6 +2,8 @@ project_id = "bygxsgeiauvcdqyikhie"
 
 # Each function checks the caller's session itself (staff / owning dealer), so the
 # platform-level JWT check stays off for compatibility with publishable keys.
+# process-document also accepts the database cron, which sends the x-autoflow-internal
+# secret instead of a session.
 [functions.verify-employer]
 verify_jwt = false
 
@@ -9,4 +11,7 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.process-document]
+verify_jwt = false
+
+[functions.document-url]
 verify_jwt = false
