@@ -1,133 +1,51 @@
+import { Send } from 'lucide-react';
 import { AppHeader } from '@/components/layout/AppHeader';
-import { DealCard } from '@/components/deals/DealCard';
-import { useDealsByDepartment } from '@/hooks/use-deals';
-import { useOpenRequestCounts } from '@/hooks/use-autoflow';
-import { Input } from '@/components/ui/input';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import { Search, SlidersHorizontal, DollarSign } from 'lucide-react';
-import { useState } from 'react';
+import { QueueView, type QueueSort } from '@/components/deals/QueueView';
+import { StatTile } from '@/components/ListControls';
+import { Button } from '@/components/ui/button';
+import { useDealCount } from '@/hooks/use-deals';
+import { usePreferences } from '@/hooks/use-autoflow';
+import { useUrlParams } from '@/hooks/use-url-state';
+
+const SORTS: QueueSort[] = [
+  { value: 'oldest', label: 'Waiting longest', sort: 'status_changed_at', ascending: true },
+  { value: 'newest', label: 'Newest first', sort: 'created_at' },
+  { value: 'amount', label: 'Largest loan', sort: 'loan_amount' },
+];
 
 export default function IncomeQueue() {
-  const { data: deals = [], isLoading } = useDealsByDepartment('income');
-  const { data: requestCounts } = useOpenRequestCounts();
-  const [sortBy, setSortBy] = useState('date');
-  const [searchQuery, setSearchQuery] = useState('');
-
-  const filteredDeals = deals.filter(
-    (deal) =>
-      deal.dealNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      `${deal.customer.firstName} ${deal.customer.lastName}`
-        .toLowerCase()
-        .includes(searchQuery.toLowerCase())
-  );
-
-  const sortedDeals = [...filteredDeals].sort((a, b) => {
-    if (sortBy === 'income_high') {
-      return (
-        (b.customer.employmentInfo?.monthlyIncome || 0) -
-        (a.customer.employmentInfo?.monthlyIncome || 0)
-      );
-    }
-    if (sortBy === 'amount') {
-      return b.financingTerms.loanAmount - a.financingTerms.loanAmount;
-    }
-    return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-  });
-
-  // Calculate stats
-  const totalLoanAmount = deals.reduce(
-    (sum, d) => sum + d.financingTerms.loanAmount,
-    0
-  );
-  const avgIncome = deals.length ? Math.round(
-    deals.reduce(
-      (sum, d) => sum + (d.customer.employmentInfo?.monthlyIncome || 0),
-      0
-    ) / deals.length
-  ) : 0;
-  const docsNeeded = deals.filter((d) => (requestCounts?.get(d.id) ?? 0) > 0).length;
+  const { prefs } = usePreferences();
+  const { get, set } = useUrlParams();
+  const docsOnly = get('waiting') === '1';
+  const waiting = useDealCount({ statuses: ['income_verification'] });
+  const onDealer = useDealCount({ statuses: ['income_verification'], waitingOnDealer: true });
+  const stuck = useDealCount({ statuses: ['income_verification'], stuckDays: prefs.stale_days });
 
   return (
     <div className="flex flex-col h-full">
       <AppHeader
         title="Income Verification Queue"
-        subtitle={`${deals.length} deals pending income verification`}
+        subtitle={waiting.data == null ? 'Loading…' : `${waiting.data} deal${waiting.data === 1 ? '' : 's'} waiting for income verification`}
       />
-
-      <div className="flex-1 overflow-hidden flex flex-col">
-        {/* Stats Bar */}
-        <div className="p-6 pb-0">
-          <div className="grid grid-cols-4 gap-4 mb-6">
-            <div className="stat-card p-4">
-              <p className="text-sm text-muted-foreground">Pending Verification</p>
-              <p className="text-2xl font-bold">{deals.length}</p>
-            </div>
-            <div className="stat-card p-4">
-              <p className="text-sm text-muted-foreground">Total Loan Volume</p>
-              <p className="text-2xl font-bold">
-                ${(totalLoanAmount / 1000).toFixed(0)}K
-              </p>
-            </div>
-            <div className="stat-card p-4">
-              <p className="text-sm text-muted-foreground">Avg Monthly Income</p>
-              <p className="text-2xl font-bold">${avgIncome.toLocaleString()}</p>
-            </div>
-            <div className="stat-card p-4">
-              <p className="text-sm text-muted-foreground">Docs Pending Review</p>
-              <p className="text-2xl font-bold text-warning">{docsNeeded}</p>
-            </div>
+      <QueueView
+        id="income"
+        statuses={['income_verification']}
+        sorts={SORTS}
+        query={docsOnly ? { waitingOnDealer: true } : undefined}
+        emptyText="Nothing waiting for income verification — credit-approved deals land here automatically."
+        toolbar={(
+          <Button variant={docsOnly ? 'default' : 'outline'} aria-pressed={docsOnly} onClick={() => set({ waiting: docsOnly ? null : '1' })}>
+            <Send className="h-4 w-4 mr-2" aria-hidden /> Waiting on dealer
+          </Button>
+        )}
+        stats={
+          <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+            <StatTile label="Waiting for verification" value={waiting.data ?? '—'} loading={waiting.isLoading} />
+            <StatTile label="Waiting on dealer documents" value={onDealer.data ?? '—'} loading={onDealer.isLoading} tone={onDealer.data ? 'warning' : undefined} />
+            <StatTile label={`Waiting over ${prefs.stale_days} days`} value={stuck.data ?? '—'} loading={stuck.isLoading} tone={stuck.data ? 'warning' : undefined} />
           </div>
-        </div>
-
-        {/* Filters */}
-        <div className="px-6 pb-4 flex items-center gap-4">
-          <div className="relative flex-1 max-w-md">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder="Search deals..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9"
-            />
-          </div>
-
-          <Select value={sortBy} onValueChange={setSortBy}>
-            <SelectTrigger className="w-48">
-              <SlidersHorizontal className="h-4 w-4 mr-2" />
-              <SelectValue placeholder="Sort by" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="date">Newest First</SelectItem>
-              <SelectItem value="income_high">
-                <span className="flex items-center gap-1">
-                  <DollarSign className="h-3 w-3" /> Highest Income
-                </span>
-              </SelectItem>
-              <SelectItem value="amount">Loan Amount</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
-        {/* Deals Grid */}
-        <div className="flex-1 overflow-y-auto p-6 pt-2 scrollbar-thin">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {sortedDeals.map((deal) => (
-              <DealCard key={deal.id} deal={deal} openRequests={requestCounts?.get(deal.id)} />
-            ))}
-          </div>
-          {sortedDeals.length === 0 && (
-            <div className="text-center py-12 text-muted-foreground">
-              {isLoading ? 'Loading…' : deals.length ? 'No deals match your search criteria' : 'Nothing waiting for income verification — credit-approved deals land here automatically.'}
-            </div>
-          )}
-        </div>
-      </div>
+        }
+      />
     </div>
   );
 }
